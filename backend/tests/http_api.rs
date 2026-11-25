@@ -333,3 +333,24 @@ async fn preflight_allows_json_posts_from_the_frontend() {
             .contains("POST")
     );
 }
+
+#[tokio::test]
+async fn index_page_says_hello_so_the_backend_can_be_checked_in_a_browser() {
+    let response = app()
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        content_type.starts_with("text/html"),
+        "content-type: {content_type}"
+    );
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(body.contains("hello"), "body: {body}");
+}

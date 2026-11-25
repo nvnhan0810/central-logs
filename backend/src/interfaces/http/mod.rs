@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method, header};
+use axum::response::Html;
 use axum::routing::{get, post};
 use tokio::runtime::Handle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -93,12 +94,20 @@ impl AppState {
     }
 }
 
+/// Index page: a plain "hello" so anyone opening the backend URL can see it is online.
+async fn index() -> Html<&'static str> {
+    Html(
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>central-logs</title></head>\n<body>\nhello\n</body>\n</html>\n",
+    )
+}
+
 pub fn router(state: AppState) -> Router {
     // The login-redirect frontend is always allowed too, so an existing `CENTRAL_LOGS_FRONTEND_URL` keeps working.
     let mut origins = state.web.cors_origins.clone();
     origins.push(state.web.frontend_url.trim_end_matches('/').to_string());
     let cors = cors_layer(&origins);
     Router::new()
+        .route("/", get(index))
         .route(
             "/api/projects",
             get(handlers::list_projects).post(handlers::create_project),
