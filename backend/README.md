@@ -25,7 +25,7 @@ cargo run                                   # listens on 127.0.0.1:8080
 CENTRAL_LOGS_ADDR=0.0.0.0:9000 cargo run    # custom address
 ```
 
-Login needs these variables (the server starts without them but `cargo run` exits with an error):
+Login needs these variables; the server exits at startup if a required one is missing:
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
@@ -112,4 +112,4 @@ Response:
 - `directory` must be one of the directories registered to the log repository, otherwise 404.
 - `path` must be relative and cannot contain `..`.
 - Paths are canonicalised; symlinks that resolve outside the registered directory are treated as not found.
-- Session ids are 256-bit random values, sent only in an `HttpOnly` cookie. Login redirects accept only same-site relative `return_to` paths.
+- Session ids, login `state` and PKCE verifiers are about 244 random bits (two v4 UUIDs). Session ids are sent only in an `HttpOnly` cookie. Login redirects accept only same-site relative `return_to` paths.
