@@ -9,12 +9,15 @@
 //! The database name must end in `_test`, so the tests never truncate a development database.
 
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use central_logs_backend::application::auth::{AuthService, Identity, PendingLogin, Session};
 use central_logs_backend::application::error::AppError;
 use central_logs_backend::application::ports::{
-    LogRepositoryReadModel, LogRepositoryRepository, ProjectReadModel, ProjectRepository,
+    IdentityProvider, LogRepositoryReadModel, LogRepositoryRepository, PendingLoginStore,
+    ProjectReadModel, ProjectRepository, SessionStore,
 };
 use central_logs_backend::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
 use central_logs_backend::infrastructure::oidc::{OidcConfig, OidcIdentityProvider};
@@ -43,10 +46,13 @@ impl Fixture {
         let pool = runtime.block_on(async {
             migrate(&config).await.expect("migrations apply");
             let pool = connect(&config).await.expect("connect to test database");
-            sqlx::query("TRUNCATE log_repositories, log_repository_directories, projects CASCADE")
-                .execute(&pool)
-                .await
-                .expect("truncate");
+            sqlx::query(
+                "TRUNCATE log_repositories, log_repository_directories, projects,
+                          auth_sessions, pending_logins CASCADE",
+            )
+            .execute(&pool)
+            .await
+            .expect("truncate");
             pool
         });
         Self { runtime, pool }
@@ -253,4 +259,150 @@ fn api_writes_are_visible_to_a_restarted_server() {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["name"], "payments");
     });
+}
+
+/// A time `secs` from now, truncated to whole milliseconds: the store keeps milliseconds only,
+/// so an unaligned time would not compare equal after a round trip.
+fn future(secs: u64) -> SystemTime {
+    let now_ms = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    SystemTime::UNIX_EPOCH + Duration::from_millis(now_ms + secs * 1000)
+}
+
+fn session_for(subject: &str) -> Session {
+    Session {
+        identity: Identity {
+            subject: subject.into(),
+            email: Some(format!("{subject}@example.test")),
+            name: None,
+        },
+        expires_at: future(8 * 60 * 60),
+    }
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
+fn sessions_round_trip_and_survive_a_new_pool() {
+    let fixture = Fixture::new();
+    let session = session_for("alice");
+    SessionStore::save(&fixture.store(), "sid-1", session.clone()).unwrap();
+
+    let config = DbConfig::from_env().unwrap();
+    let pool = fixture.runtime.block_on(connect(&config)).unwrap();
+    let reopened = PgStore::new(pool, fixture.runtime.handle().clone());
+
+    assert_eq!(
+        SessionStore::find(&reopened, "sid-1").unwrap(),
+        Some(session)
+    );
+    assert_eq!(SessionStore::find(&reopened, "unknown").unwrap(), None);
+
+    SessionStore::delete(&reopened, "sid-1").unwrap();
+    assert_eq!(SessionStore::find(&reopened, "sid-1").unwrap(), None);
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
+fn expired_sessions_are_pruned_when_another_session_is_saved() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    SessionStore::save(
+        &store,
+        "stale",
+        Session {
+            expires_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1),
+            ..session_for("bob")
+        },
+    )
+    .unwrap();
+
+    SessionStore::save(&store, "fresh", session_for("carol")).unwrap();
+
+    assert_eq!(SessionStore::find(&store, "stale").unwrap(), None);
+    assert!(SessionStore::find(&store, "fresh").unwrap().is_some());
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
+fn pending_login_is_taken_once() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let login = PendingLogin {
+        code_verifier: "verifier".into(),
+        return_to: "/projects/1".into(),
+        expires_at: future(600),
+    };
+    PendingLoginStore::save(&store, "state-1", login.clone()).unwrap();
+
+    assert_eq!(
+        PendingLoginStore::take(&store, "state-1").unwrap(),
+        Some(login)
+    );
+    assert_eq!(PendingLoginStore::take(&store, "state-1").unwrap(), None);
+}
+
+/// Identity provider that is never contacted: any code is accepted as a user named after it.
+struct FakeIdp;
+
+impl IdentityProvider for FakeIdp {
+    fn authorization_url(&self, state: &str, _code_verifier: &str) -> Result<String, AppError> {
+        Ok(format!("https://idp.test/authorize?state={state}"))
+    }
+
+    fn exchange_code(&self, code: &str, _code_verifier: &str) -> Result<Identity, AppError> {
+        Ok(Identity {
+            subject: format!("user-{code}"),
+            email: Some("user@example.test".into()),
+            name: None,
+        })
+    }
+}
+
+fn auth_on(store: PgStore) -> AuthService {
+    let store = Arc::new(store);
+    AuthService::new(Arc::new(FakeIdp), store.clone(), store)
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
+fn sign_in_started_before_a_restart_completes_and_stays_signed_in() {
+    let fixture = Fixture::new();
+    let config = DbConfig::from_env().unwrap();
+    let handle = fixture.runtime.handle().clone();
+
+    // Server 1 starts the login, then goes away.
+    let url = auth_on(fixture.store())
+        .begin_login(Some("/projects/1"))
+        .unwrap();
+    let state = url
+        .split("state=")
+        .nth(1)
+        .unwrap()
+        .split('&')
+        .next()
+        .unwrap()
+        .to_owned();
+
+    // Server 2, on a new pool, receives the callback.
+    let pool = fixture.runtime.block_on(connect(&config)).unwrap();
+    let second = auth_on(PgStore::new(pool, handle.clone()));
+    let done = second.complete_login(&state, "code-1").unwrap();
+    assert_eq!(done.return_to, "/projects/1");
+
+    // Server 3, after another restart, still knows the user.
+    let pool = fixture.runtime.block_on(connect(&config)).unwrap();
+    let third = auth_on(PgStore::new(pool, handle));
+    let user = third.current_user(&done.session_id).unwrap().unwrap();
+    assert_eq!(user.subject, "user-code-1");
+
+    // The state was consumed by server 2, so a replayed callback is rejected.
+    assert!(matches!(
+        third.complete_login(&state, "code-1"),
+        Err(AppError::Validation(_))
+    ));
+
+    third.logout(&done.session_id).unwrap();
+    assert_eq!(third.current_user(&done.session_id).unwrap(), None);
 }
