@@ -41,12 +41,12 @@ Start the backend first (see `../backend/README.md`), then:
 
 ```sh
 npm install
-npm run dev          # http://localhost:3000, calls the backend directly
+npm run dev          # http://localhost:5173 (Vite default), calls the backend directly
 ```
 
 The frontend calls the backend at `http://localhost:8080/api` (set `VITE_API_BASE_URL` to change it).
-The backend must allow the frontend origin: keep `CENTRAL_LOGS_FRONTEND_URL=http://localhost:3000`
-(the default). It is also the only origin granted CORS with credentials.
+The backend sends the browser back to `CENTRAL_LOGS_FRONTEND_URL` after login (default
+`http://localhost:3000`), so for this dev server set `CENTRAL_LOGS_FRONTEND_URL=http://localhost:5173`.
 For plain-HTTP local development, also set `CENTRAL_LOGS_COOKIE_SECURE=false`.
 
 Use `localhost` for both, not `127.0.0.1` mixed with `localhost`: the session cookie is
@@ -62,7 +62,7 @@ Environment variables for the frontend:
 
 | Command                | Purpose                                      |
 | ---------------------- | -------------------------------------------- |
-| `npm run dev`          | Dev server on port 3000                      |
+| `npm run dev`          | Dev server on Vite default port 5173         |
 | `npm run build`        | Type check, then production build to `dist/` |
 | `npm run typecheck`    | `vue-tsc` over `src` and `tests`             |
 | `npm run lint`         | ESLint, zero warnings allowed                |
