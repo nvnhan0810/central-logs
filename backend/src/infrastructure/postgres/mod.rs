@@ -1,4 +1,4 @@
-//! PostgreSQL adapter: persists projects and log repositories.
+//! PostgreSQL adapter: persists projects, log repositories, login sessions and pending logins.
 //!
 //! The ports are synchronous and are called from `spawn_blocking`, so the adapter drives the
 //! async `sqlx` driver with `Handle::block_on`. Schema changes live in `migrations/` and are
