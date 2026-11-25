@@ -3,3 +3,4 @@
 pub mod fs;
 pub mod memory;
 pub mod oidc;
+pub mod postgres;
