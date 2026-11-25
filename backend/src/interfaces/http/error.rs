@@ -47,6 +47,12 @@ impl From<AppError> for ApiError {
             AppError::Storage(_) => {
                 return Self::internal();
             }
+            // Identity provider details stay server-side too.
+            AppError::Upstream(_) => (
+                StatusCode::BAD_GATEWAY,
+                "identity_unavailable",
+                "identity provider is unavailable".into(),
+            ),
         };
         Self {
             status,
