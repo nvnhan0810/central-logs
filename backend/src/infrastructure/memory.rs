@@ -3,10 +3,13 @@
 
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard};
+use std::time::SystemTime;
 
+use crate::application::auth::{PendingLogin, Session};
 use crate::application::error::AppError;
 use crate::application::ports::{
-    LogRepositoryReadModel, LogRepositoryRepository, ProjectReadModel, ProjectRepository,
+    LogRepositoryReadModel, LogRepositoryRepository, PendingLoginStore, ProjectReadModel,
+    ProjectRepository, SessionStore,
 };
 use crate::application::views::{LogRepositoryView, ProjectView};
 use crate::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
@@ -15,6 +18,8 @@ use crate::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
 struct State {
     projects: HashMap<ProjectId, Project>,
     log_repositories: HashMap<LogRepositoryId, LogRepository>,
+    pending_logins: HashMap<String, PendingLogin>,
+    sessions: HashMap<String, Session>,
 }
 
 #[derive(Default)]
@@ -86,5 +91,36 @@ impl LogRepositoryReadModel for InMemoryStore {
             .collect();
         views.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(views)
+    }
+}
+
+impl PendingLoginStore for InMemoryStore {
+    fn save(&self, state: &str, login: PendingLogin) -> Result<(), AppError> {
+        let mut guard = self.lock()?;
+        // Abandoned logins would otherwise accumulate, so drop the expired ones here.
+        let now = SystemTime::now();
+        guard.pending_logins.retain(|_, l| l.expires_at > now);
+        guard.pending_logins.insert(state.to_owned(), login);
+        Ok(())
+    }
+
+    fn take(&self, state: &str) -> Result<Option<PendingLogin>, AppError> {
+        Ok(self.lock()?.pending_logins.remove(state))
+    }
+}
+
+impl SessionStore for InMemoryStore {
+    fn save(&self, session_id: &str, session: Session) -> Result<(), AppError> {
+        self.lock()?.sessions.insert(session_id.to_owned(), session);
+        Ok(())
+    }
+
+    fn find(&self, session_id: &str) -> Result<Option<Session>, AppError> {
+        Ok(self.lock()?.sessions.get(session_id).cloned())
+    }
+
+    fn delete(&self, session_id: &str) -> Result<(), AppError> {
+        self.lock()?.sessions.remove(session_id);
+        Ok(())
     }
 }
