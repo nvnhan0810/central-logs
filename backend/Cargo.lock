@@ -165,6 +165,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tower",
+ "tower-http",
  "uuid",
 ]
 

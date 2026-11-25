@@ -8,8 +8,10 @@ mod handlers;
 use std::sync::Arc;
 
 use axum::Router;
+use axum::http::{HeaderValue, Method, header};
 use axum::routing::{get, post};
 use tokio::runtime::Handle;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use crate::application::auth::AuthService;
 use crate::application::commands::CommandService;
@@ -31,6 +33,9 @@ pub struct WebSettings {
     pub frontend_url: String,
     /// Set the session cookie with `Secure`. Turn off only for plain-HTTP local development.
     pub cookie_secure: bool,
+    /// Origins allowed to call the API from a browser, e.g. `http://localhost:5173`.
+    /// Each entry is `scheme://host[:port]` with no path. Requests carry cookies, so origins are never `*`.
+    pub cors_origins: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -94,6 +99,7 @@ impl AppState {
 }
 
 pub fn router(state: AppState) -> Router {
+    let cors = cors_layer(&state.web.cors_origins);
     Router::new()
         .route(
             "/api/projects",
@@ -113,5 +119,20 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/callback", get(auth::callback))
         .route("/api/auth/me", get(auth::me))
         .route("/api/auth/logout", post(auth::logout))
+        .layer(cors)
         .with_state(state)
+}
+
+/// Lets the configured frontend origins call the API with cookies (`fetch(..., { credentials: "include" })`).
+/// Origins are validated at startup (see `main`), so an invalid one here is a programming error.
+fn cors_layer(origins: &[String]) -> CorsLayer {
+    let allowed: Vec<HeaderValue> = origins
+        .iter()
+        .map(|o| HeaderValue::from_str(o).expect("CORS origin must be a valid header value"))
+        .collect();
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(allowed))
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE])
+        .allow_credentials(true)
 }

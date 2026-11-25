@@ -121,6 +121,7 @@ fn app(issuer: &str, cookie_secure: bool) -> Router {
     let web = WebSettings {
         frontend_url: FRONTEND.into(),
         cookie_secure,
+        cors_origins: vec!["http://localhost:5173".into()],
     };
     router(AppState::in_memory(Arc::new(identity), web))
 }

@@ -7,6 +7,31 @@ use central_logs_backend::interfaces::http::{AppState, WebSettings, router};
 
 const DEFAULT_ISSUER: &str = "https://identity.nvnhan0810.com";
 const DEFAULT_FRONTEND_URL: &str = "http://localhost:3000";
+const DEFAULT_CORS_ORIGINS: &str = "http://localhost:5173";
+
+/// Parses a comma-separated list of origins such as `http://localhost:5173,https://logs.example.com`.
+/// A trailing slash is dropped, because browsers send origins without one.
+fn parse_cors_origins(raw: &str) -> std::io::Result<Vec<String>> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let origin = s.trim_end_matches('/');
+            let (scheme, host) = origin.split_once("://").ok_or_else(|| {
+                Error::new(ErrorKind::InvalidInput, format!("invalid CORS origin: {s}"))
+            })?;
+            let valid_scheme = matches!(scheme, "http" | "https");
+            let valid_host = !host.is_empty() && !host.contains(['/', '?', '#', ' ']);
+            if !valid_scheme || !valid_host {
+                return Err(Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("invalid CORS origin (expected scheme://host[:port]): {s}"),
+                ));
+            }
+            Ok(origin.to_string())
+        })
+        .collect()
+}
 
 fn required(name: &str) -> std::io::Result<String> {
     std::env::var(name)
@@ -35,6 +60,9 @@ async fn main() -> std::io::Result<()> {
         // Secure by default; set CENTRAL_LOGS_COOKIE_SECURE=false only for plain-HTTP local development.
         cookie_secure: optional("CENTRAL_LOGS_COOKIE_SECURE")
             .is_none_or(|v| !matches!(v.as_str(), "false" | "0")),
+        cors_origins: parse_cors_origins(
+            &optional("CENTRAL_LOGS_CORS_ORIGINS").unwrap_or_else(|| DEFAULT_CORS_ORIGINS.into()),
+        )?,
     };
 
     let db = DbConfig::from_env()?;
@@ -47,6 +75,9 @@ async fn main() -> std::io::Result<()> {
     })?;
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    if web.cors_origins.is_empty() {
+        println!("CORS: no frontend origins allowed (CENTRAL_LOGS_CORS_ORIGINS is empty)");
+    }
     println!("central-logs backend listening on http://{addr}");
     axum::serve(
         listener,
@@ -58,4 +89,32 @@ async fn main() -> std::io::Result<()> {
         )),
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_cors_origins;
+
+    #[test]
+    fn splits_trims_and_drops_trailing_slashes() {
+        let origins =
+            parse_cors_origins(" http://localhost:5173/ , https://logs.example.com ,").unwrap();
+        assert_eq!(
+            origins,
+            ["http://localhost:5173", "https://logs.example.com"]
+        );
+    }
+
+    #[test]
+    fn empty_value_means_no_origins() {
+        assert!(parse_cors_origins("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn rejects_origins_with_a_path_or_bad_scheme() {
+        assert!(parse_cors_origins("http://localhost:5173/app").is_err());
+        assert!(parse_cors_origins("localhost:5173").is_err());
+        assert!(parse_cors_origins("ftp://example.com").is_err());
+        assert!(parse_cors_origins("http://").is_err());
+    }
 }

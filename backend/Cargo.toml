@@ -14,6 +14,7 @@ sha2 = "0.10"
 sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "migrate", "macros"] }
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
 uuid = { version = "1.29.3", features = ["v4", "serde"] }
 
 [dev-dependencies]

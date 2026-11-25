@@ -24,6 +24,7 @@ fn app() -> axum::Router {
     let web = WebSettings {
         frontend_url: "http://localhost:3000".into(),
         cookie_secure: false,
+        cors_origins: vec!["http://localhost:5173".into()],
     };
     router(AppState::in_memory(Arc::new(identity), web))
 }
