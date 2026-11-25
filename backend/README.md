@@ -11,7 +11,7 @@ Layers, dependencies point inward:
 |---|---|---|
 | Domain | `src/domain` | Aggregates `Project`, `LogRepository`; value objects `Name`, `LogDirectory`, `RelativeLogPath`. No I/O. |
 | Application | `src/application` | CQRS: `CommandService` (writes) and `QueryService` (reads); `AuthService` (login); ports `ProjectRepository`, `LogRepositoryRepository`, read models, `LogFileSystem`, `IdentityProvider`, `PendingLoginStore`, `SessionStore`. |
-| Infrastructure | `src/infrastructure` | `InMemoryStore` (metadata and sessions), `FsLogFileSystem` (log files), `OidcIdentityProvider` (identity provider). |
+| Infrastructure | `src/infrastructure` | `PgStore` (projects and log repositories, PostgreSQL), `InMemoryStore` (sessions, pending logins; also metadata in tests), `FsLogFileSystem` (log files), `OidcIdentityProvider` (identity provider). |
 | Interfaces | `src/interfaces/http` | axum routes, DTOs, error mapping. |
 
 Domain invariants are enforced by factories, so invalid objects cannot be built:
@@ -20,10 +20,29 @@ a log repository needs at least one unique directory; project names are unique.
 
 ## Run
 
+Requires PostgreSQL. Settings are read from the environment or from a `.env` file in this directory.
+
 ```sh
-cargo run                                   # listens on 127.0.0.1:8080
+cp .env.example .env          # then fill in the values
+make migrate                  # creates the database if missing and applies migrations
+make build                    # release build: target/release/central_logs_backend
+cargo run                     # listens on 127.0.0.1:8080
 CENTRAL_LOGS_ADDR=0.0.0.0:9000 cargo run    # custom address
 ```
+
+Database settings (all required; the server exits at startup if one is missing or the database is unreachable):
+
+| Variable | Meaning |
+|---|---|
+| `DB_HOST` | PostgreSQL host |
+| `DB_PORT` | PostgreSQL port |
+| `DB_NAME` | Database name |
+| `DB_USERNAME` | Role used to connect |
+| `DB_PASSWORD` | Password for that role (may be empty if the server trusts the connection) |
+
+`cargo run --bin console -- migrate` (or `make migrate`) is the operator console. It creates the
+database when it does not exist (the role needs `CREATEDB` for that), then applies pending migrations
+from `migrations/`. Running it again is a no-op. The server never migrates on its own.
 
 Login needs these variables; the server exits at startup if a required one is missing:
 
@@ -36,13 +55,20 @@ Login needs these variables; the server exits at startup if a required one is mi
 | `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | Frontend origin: where the browser is sent after login, and the only origin allowed to call the API cross-origin (CORS with credentials). Origin only, no path. |
 | `CENTRAL_LOGS_COOKIE_SECURE` | no | `true` | Set `false` only for plain-HTTP local development |
 
-Metadata (projects, log repositories) and sessions are kept **in memory** and are lost on restart.
+Projects and log repositories are stored in PostgreSQL. Sessions and pending logins are still kept **in memory** and are lost on restart.
 
 ## Test
 
 ```sh
 cargo test
 cargo clippy --all-targets -- -D warnings
+```
+
+PostgreSQL tests are ignored by default. They truncate tables, so they only run against a database
+whose name ends in `_test`:
+
+```sh
+DB_NAME=central_logs_test cargo test --test postgres_store -- --ignored --test-threads=1
 ```
 
 Tests are written test-first: domain rules, command/query use cases against fakes,

@@ -2,6 +2,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 
 use central_logs_backend::infrastructure::oidc::{OidcConfig, OidcIdentityProvider};
+use central_logs_backend::infrastructure::postgres::{DbConfig, connect};
 use central_logs_backend::interfaces::http::{AppState, WebSettings, router};
 
 const DEFAULT_ISSUER: &str = "https://identity.nvnhan0810.com";
@@ -18,6 +19,8 @@ fn optional(name: &str) -> Option<String> {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // Optional local settings file; variables already set in the environment take precedence.
+    let _ = dotenvy::dotenv();
     let addr = std::env::var("CENTRAL_LOGS_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into());
 
     let identity = OidcIdentityProvider::new(OidcConfig {
@@ -34,11 +37,25 @@ async fn main() -> std::io::Result<()> {
             .is_none_or(|v| !matches!(v.as_str(), "false" | "0")),
     };
 
+    let db = DbConfig::from_env()?;
+    // Connecting is part of startup: an unreachable database stops the server before it listens.
+    let pool = connect(&db).await.map_err(|e| {
+        Error::other(format!(
+            "could not connect to PostgreSQL at {}:{}: {e}",
+            db.host, db.port
+        ))
+    })?;
+
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     println!("central-logs backend listening on http://{addr}");
     axum::serve(
         listener,
-        router(AppState::in_memory(Arc::new(identity), web)),
+        router(AppState::with_postgres(
+            Arc::new(identity),
+            web,
+            pool,
+            tokio::runtime::Handle::current(),
+        )),
     )
     .await
 }
