@@ -10,8 +10,8 @@ Layers, dependencies point inward:
 | Layer | Path | Contents |
 |---|---|---|
 | Domain | `src/domain` | Aggregates `Project`, `LogRepository`; value objects `Name`, `LogDirectory`, `RelativeLogPath`. No I/O. |
-| Application | `src/application` | CQRS: `CommandService` (writes) and `QueryService` (reads); ports `ProjectRepository`, `LogRepositoryRepository`, read models, `LogFileSystem`. |
-| Infrastructure | `src/infrastructure` | `InMemoryStore` (metadata), `FsLogFileSystem` (log files). |
+| Application | `src/application` | CQRS: `CommandService` (writes) and `QueryService` (reads); `AuthService` (login); ports `ProjectRepository`, `LogRepositoryRepository`, read models, `LogFileSystem`, `IdentityProvider`, `PendingLoginStore`, `SessionStore`. |
+| Infrastructure | `src/infrastructure` | `InMemoryStore` (metadata and sessions), `FsLogFileSystem` (log files), `OidcIdentityProvider` (identity provider). |
 | Interfaces | `src/interfaces/http` | axum routes, DTOs, error mapping. |
 
 Domain invariants are enforced by factories, so invalid objects cannot be built:
@@ -25,7 +25,18 @@ cargo run                                   # listens on 127.0.0.1:8080
 CENTRAL_LOGS_ADDR=0.0.0.0:9000 cargo run    # custom address
 ```
 
-Metadata (projects, log repositories) is kept **in memory** and is lost on restart.
+Login needs these variables (the server starts without them but `cargo run` exits with an error):
+
+| Variable | Required | Default | Meaning |
+|---|---|---|---|
+| `CENTRAL_LOGS_OIDC_CLIENT_ID` | yes | | Client registered with the identity provider |
+| `CENTRAL_LOGS_OIDC_REDIRECT_URI` | yes | | Backend callback URL, e.g. `https://logs.example.com/api/auth/callback`; must be registered with the provider |
+| `CENTRAL_LOGS_OIDC_CLIENT_SECRET` | no | | Only for confidential clients; PKCE is always used |
+| `CENTRAL_LOGS_OIDC_ISSUER` | no | `https://identity.nvnhan0810.com` | Issuer; discovery is read from `{issuer}/.well-known/openid-configuration` |
+| `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | Where the browser is sent after login |
+| `CENTRAL_LOGS_COOKIE_SECURE` | no | `true` | Set `false` only for plain-HTTP local development |
+
+Metadata (projects, log repositories) and sessions are kept **in memory** and are lost on restart.
 
 ## Test
 
@@ -51,6 +62,27 @@ All bodies are JSON. Errors look like `{"error": {"code": "...", "message": "...
 | POST | `/api/projects/{id}/log-repositories` | Create `{ "name", "directories": [abs paths] }`; every directory must exist | 201 `{ "id" }` |
 | GET | `/api/log-repositories/{id}/entries?directory=&path=` | List children of `path` inside one registered directory (`path` optional) | 200 |
 | GET | `/api/log-repositories/{id}/file?directory=&path=&offset=&max_lines=&max_bytes=` | Read one page of a log file | 200 |
+| GET | `/api/auth/login?return_to=` | Start login: redirects (302) to the identity provider | 302 |
+| GET | `/api/auth/callback?code=&state=` | Identity provider redirect target: sets the session cookie, redirects (302) to the frontend | 302 |
+| GET | `/api/auth/me` | Current user `{ subject, email, name }` | 200 / 401 |
+| POST | `/api/auth/logout` | End the session and clear the cookie | 204 |
+
+### Login (frontend integration)
+
+Login is an OpenID Connect authorization code flow with PKCE, run by the backend:
+
+1. The frontend navigates the browser to `/api/auth/login?return_to=/some/page` (a same-site relative path only; anything else is 400).
+2. The backend redirects to the identity provider. The user signs in there.
+3. The provider redirects to `/api/auth/callback`. The backend exchanges the code, reads the user's claims from `userinfo`, creates a session, sets cookie `central_logs_session` (`HttpOnly`, `SameSite=Lax`, 8 hours) and redirects to `CENTRAL_LOGS_FRONTEND_URL` + `return_to`.
+4. The frontend calls `GET /api/auth/me` (send cookies, e.g. `fetch(url, { credentials: "include" })` when the frontend is on another origin) to know who is signed in. A 401 means sign in again.
+5. `POST /api/auth/logout` ends the session.
+
+Errors use the usual shape. `400 invalid_request` covers a bad or reused `state`, an expired login, or a provider-reported error. `502 identity_unavailable` means the provider could not be reached or rejected the exchange; details are not returned to the client.
+
+Notes:
+- Login `state` is single-use and expires after 10 minutes. Sessions expire after 8 hours.
+- The ID token signature is not verified. Claims come from `userinfo`, which is called over TLS with the access token received directly from the provider's token endpoint.
+- Existing `/api/projects` and `/api/log-repositories` routes do not require a session yet.
 
 ### Reading large log files
 
@@ -80,3 +112,4 @@ Response:
 - `directory` must be one of the directories registered to the log repository, otherwise 404.
 - `path` must be relative and cannot contain `..`.
 - Paths are canonicalised; symlinks that resolve outside the registered directory are treated as not found.
+- Session ids are 256-bit random values, sent only in an `HttpOnly` cookie. Login redirects accept only same-site relative `return_to` paths.
