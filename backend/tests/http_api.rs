@@ -24,6 +24,7 @@ fn app() -> axum::Router {
     let web = WebSettings {
         frontend_url: "http://localhost:3000".into(),
         cookie_secure: false,
+        cors_origins: vec!["http://localhost:5173".into()],
     };
     router(AppState::in_memory(Arc::new(identity), web))
 }
@@ -301,16 +302,8 @@ async fn other_origins_get_no_cors_grant() {
     let app = app();
     let headers = cors_headers(&app, "GET", "https://evil.example").await;
 
-    // The header always names the configured frontend, never the caller, so the browser
-    // rejects the response for any other origin.
-    assert_eq!(
-        headers["access-control-allow-origin"],
-        "http://localhost:3000"
-    );
-    assert_ne!(
-        headers["access-control-allow-origin"],
-        "https://evil.example"
-    );
+    // No allow-origin header for an unlisted caller, so the browser rejects the response.
+    assert!(headers.get("access-control-allow-origin").is_none());
 }
 
 #[tokio::test]

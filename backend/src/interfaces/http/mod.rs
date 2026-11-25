@@ -33,6 +33,9 @@ pub struct WebSettings {
     pub frontend_url: String,
     /// Set the session cookie with `Secure`. Turn off only for plain-HTTP local development.
     pub cookie_secure: bool,
+    /// Origins allowed to call the API from a browser, e.g. `http://localhost:5173`.
+    /// Each entry is `scheme://host[:port]` with no path. Requests carry cookies, so origins are never `*`.
+    pub cors_origins: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -90,22 +93,11 @@ impl AppState {
     }
 }
 
-/// CORS for the frontend origin only, with credentials so the session cookie is sent.
-/// The browser keeps the cookie because the frontend and backend must be same-site
-/// (e.g. both on `localhost`, or sub-domains of one domain); `SameSite=Lax` is unchanged.
-fn cors_layer(frontend_url: &str) -> CorsLayer {
-    let origin = frontend_url.trim_end_matches('/');
-    let origin = HeaderValue::from_str(origin)
-        .unwrap_or_else(|_| panic!("CENTRAL_LOGS_FRONTEND_URL is not a valid origin: {origin}"));
-    CorsLayer::new()
-        .allow_origin(AllowOrigin::exact(origin))
-        .allow_credentials(true)
-        .allow_methods([Method::GET, Method::POST])
-        .allow_headers([header::ACCEPT, header::CONTENT_TYPE])
-}
-
 pub fn router(state: AppState) -> Router {
-    let cors = cors_layer(&state.web.frontend_url);
+    // The login-redirect frontend is always allowed too, so an existing `CENTRAL_LOGS_FRONTEND_URL` keeps working.
+    let mut origins = state.web.cors_origins.clone();
+    origins.push(state.web.frontend_url.trim_end_matches('/').to_string());
+    let cors = cors_layer(&origins);
     Router::new()
         .route(
             "/api/projects",
@@ -125,6 +117,22 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/callback", get(auth::callback))
         .route("/api/auth/me", get(auth::me))
         .route("/api/auth/logout", post(auth::logout))
-        .with_state(state)
         .layer(cors)
+        .with_state(state)
+}
+
+/// Lets the configured frontend origins call the API with cookies (`fetch(..., { credentials: "include" })`).
+/// Origins are never `*`. The browser keeps the session cookie only when the frontend and backend are same-site
+/// (e.g. both on `localhost`, or sub-domains of one domain); `SameSite=Lax` is unchanged.
+/// Origins are validated at startup (see `main`), so an invalid one here is a programming error.
+fn cors_layer(origins: &[String]) -> CorsLayer {
+    let allowed: Vec<HeaderValue> = origins
+        .iter()
+        .map(|o| HeaderValue::from_str(o).expect("CORS origin must be a valid header value"))
+        .collect();
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(allowed))
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE])
+        .allow_credentials(true)
 }
