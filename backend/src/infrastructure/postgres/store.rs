@@ -1,7 +1,7 @@
 //! Repository and read-model ports implemented on PostgreSQL.
 
 use std::future::Future;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sqlx::Row;
 use sqlx::postgres::{PgPoolOptions, PgRow};
@@ -9,9 +9,11 @@ use tokio::runtime::Handle;
 use uuid::Uuid;
 
 use super::DbConfig;
+use crate::application::auth::{Identity, PendingLogin, Session};
 use crate::application::error::AppError;
 use crate::application::ports::{
-    LogRepositoryReadModel, LogRepositoryRepository, ProjectReadModel, ProjectRepository,
+    LogRepositoryReadModel, LogRepositoryRepository, PendingLoginStore, ProjectReadModel,
+    ProjectRepository, SessionStore,
 };
 use crate::application::views::{LogRepositoryView, ProjectView};
 use crate::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
@@ -74,6 +76,40 @@ fn project_from_row(row: &PgRow) -> Result<Project, AppError> {
     let name: String = row.try_get("name").map_err(storage)?;
     let description: String = row.try_get("description").map_err(storage)?;
     Ok(Project::create(id, &name, &description)?)
+}
+
+/// Expiry times are stored as milliseconds since the Unix epoch.
+fn to_millis(time: SystemTime) -> Result<i64, AppError> {
+    let since_epoch = time
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| AppError::Storage("time is before the Unix epoch".into()))?;
+    i64::try_from(since_epoch.as_millis())
+        .map_err(|_| AppError::Storage("timestamp out of range".into()))
+}
+
+fn from_millis(millis: i64) -> Result<SystemTime, AppError> {
+    let millis = u64::try_from(millis)
+        .map_err(|_| AppError::Storage("negative timestamp in storage".into()))?;
+    Ok(UNIX_EPOCH + Duration::from_millis(millis))
+}
+
+fn session_from_row(row: &PgRow) -> Result<Session, AppError> {
+    Ok(Session {
+        identity: Identity {
+            subject: row.try_get("subject").map_err(storage)?,
+            email: row.try_get("email").map_err(storage)?,
+            name: row.try_get("name").map_err(storage)?,
+        },
+        expires_at: from_millis(row.try_get("expires_at_ms").map_err(storage)?)?,
+    })
+}
+
+fn pending_from_row(row: &PgRow) -> Result<PendingLogin, AppError> {
+    Ok(PendingLogin {
+        code_verifier: row.try_get("code_verifier").map_err(storage)?,
+        return_to: row.try_get("return_to").map_err(storage)?,
+        expires_at: from_millis(row.try_get("expires_at_ms").map_err(storage)?)?,
+    })
 }
 
 impl ProjectRepository for PgStore {
@@ -240,5 +276,117 @@ impl LogRepositoryReadModel for PgStore {
                 })
             })
             .collect()
+    }
+}
+
+impl PendingLoginStore for PgStore {
+    fn save(&self, state: &str, login: PendingLogin) -> Result<(), AppError> {
+        let expires_at_ms = to_millis(login.expires_at)?;
+        let now_ms = to_millis(SystemTime::now())?;
+        self.run(async {
+            // Abandoned logins would otherwise accumulate, so expired ones are dropped here.
+            sqlx::query("DELETE FROM pending_logins WHERE expires_at_ms <= $1")
+                .bind(now_ms)
+                .execute(&self.pool)
+                .await?;
+            sqlx::query(
+                "INSERT INTO pending_logins (state, code_verifier, return_to, expires_at_ms)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (state) DO UPDATE SET
+                     code_verifier = EXCLUDED.code_verifier,
+                     return_to = EXCLUDED.return_to,
+                     expires_at_ms = EXCLUDED.expires_at_ms",
+            )
+            .bind(state)
+            .bind(login.code_verifier.as_str())
+            .bind(login.return_to.as_str())
+            .bind(expires_at_ms)
+            .execute(&self.pool)
+            .await?;
+            Ok::<(), sqlx::Error>(())
+        })
+    }
+
+    fn take(&self, state: &str) -> Result<Option<PendingLogin>, AppError> {
+        // DELETE ... RETURNING removes the row in the same statement, so a state is used at most once.
+        let row = self.run(
+            sqlx::query(
+                "DELETE FROM pending_logins WHERE state = $1
+                 RETURNING code_verifier, return_to, expires_at_ms",
+            )
+            .bind(state)
+            .fetch_optional(&self.pool),
+        )?;
+        row.as_ref().map(pending_from_row).transpose()
+    }
+}
+
+impl SessionStore for PgStore {
+    fn save(&self, session_id: &str, session: Session) -> Result<(), AppError> {
+        let expires_at_ms = to_millis(session.expires_at)?;
+        let now_ms = to_millis(SystemTime::now())?;
+        self.run(async {
+            sqlx::query("DELETE FROM auth_sessions WHERE expires_at_ms <= $1")
+                .bind(now_ms)
+                .execute(&self.pool)
+                .await?;
+            sqlx::query(
+                "INSERT INTO auth_sessions (id, subject, email, name, expires_at_ms)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (id) DO UPDATE SET
+                     subject = EXCLUDED.subject,
+                     email = EXCLUDED.email,
+                     name = EXCLUDED.name,
+                     expires_at_ms = EXCLUDED.expires_at_ms",
+            )
+            .bind(session_id)
+            .bind(session.identity.subject.as_str())
+            .bind(session.identity.email.as_deref())
+            .bind(session.identity.name.as_deref())
+            .bind(expires_at_ms)
+            .execute(&self.pool)
+            .await?;
+            Ok::<(), sqlx::Error>(())
+        })
+    }
+
+    fn find(&self, session_id: &str) -> Result<Option<Session>, AppError> {
+        let row = self.run(
+            sqlx::query(
+                "SELECT subject, email, name, expires_at_ms FROM auth_sessions WHERE id = $1",
+            )
+            .bind(session_id)
+            .fetch_optional(&self.pool),
+        )?;
+        row.as_ref().map(session_from_row).transpose()
+    }
+
+    fn delete(&self, session_id: &str) -> Result<(), AppError> {
+        self.run(
+            sqlx::query("DELETE FROM auth_sessions WHERE id = $1")
+                .bind(session_id)
+                .execute(&self.pool),
+        )
+        .map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timestamps_round_trip_through_milliseconds() {
+        let when = UNIX_EPOCH + Duration::from_millis(1_795_601_490_123);
+        assert_eq!(to_millis(when).unwrap(), 1_795_601_490_123);
+        assert_eq!(from_millis(1_795_601_490_123).unwrap(), when);
+        assert_eq!(from_millis(0).unwrap(), UNIX_EPOCH);
+    }
+
+    #[test]
+    fn timestamps_before_the_epoch_are_rejected() {
+        let before = UNIX_EPOCH - Duration::from_secs(1);
+        assert!(matches!(to_millis(before), Err(AppError::Storage(_))));
+        assert!(matches!(from_millis(-1), Err(AppError::Storage(_))));
     }
 }

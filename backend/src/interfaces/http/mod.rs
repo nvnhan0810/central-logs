@@ -14,8 +14,8 @@ use tokio::runtime::Handle;
 use crate::application::auth::AuthService;
 use crate::application::commands::CommandService;
 use crate::application::ports::{
-    IdentityProvider, LogRepositoryReadModel, LogRepositoryRepository, ProjectReadModel,
-    ProjectRepository,
+    IdentityProvider, LogRepositoryReadModel, LogRepositoryRepository, PendingLoginStore,
+    ProjectReadModel, ProjectRepository, SessionStore,
 };
 use crate::application::queries::QueryService;
 use crate::infrastructure::fs::FsLogFileSystem;
@@ -42,13 +42,13 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Wires the in-memory adapters for metadata and sessions. Used by tests; data is lost on restart.
+    /// Wires the in-memory adapters for everything. Used by tests; data is lost on restart.
     pub fn in_memory(identity: Arc<dyn IdentityProvider>, web: WebSettings) -> Self {
-        let store = Arc::new(InMemoryStore::default());
-        Self::assemble(identity, web, store.clone(), store)
+        Self::assemble(identity, web, Arc::new(InMemoryStore::default()))
     }
 
-    /// Stores projects and log repositories in PostgreSQL. Sessions and pending logins stay in memory.
+    /// Stores projects, log repositories, login sessions and pending logins in PostgreSQL,
+    /// so signed-in users stay signed in across a restart.
     /// `runtime` must be the tokio runtime that created `pool`.
     pub fn with_postgres(
         identity: Arc<dyn IdentityProvider>,
@@ -56,38 +56,33 @@ impl AppState {
         pool: PgPool,
         runtime: Handle,
     ) -> Self {
-        let metadata = Arc::new(PgStore::new(pool, runtime));
-        let sessions = Arc::new(InMemoryStore::default());
-        Self::assemble(identity, web, metadata, sessions)
+        Self::assemble(identity, web, Arc::new(PgStore::new(pool, runtime)))
     }
 
-    fn assemble<M>(
-        identity: Arc<dyn IdentityProvider>,
-        web: WebSettings,
-        metadata: Arc<M>,
-        sessions: Arc<InMemoryStore>,
-    ) -> Self
+    fn assemble<S>(identity: Arc<dyn IdentityProvider>, web: WebSettings, store: Arc<S>) -> Self
     where
-        M: ProjectRepository
+        S: ProjectRepository
             + LogRepositoryRepository
             + ProjectReadModel
             + LogRepositoryReadModel
+            + PendingLoginStore
+            + SessionStore
             + 'static,
     {
         let files = Arc::new(FsLogFileSystem);
         Self {
             commands: Arc::new(CommandService::new(
-                metadata.clone(),
-                metadata.clone(),
+                store.clone(),
+                store.clone(),
                 files.clone(),
             )),
             queries: Arc::new(QueryService::new(
-                metadata.clone(),
-                metadata.clone(),
-                metadata.clone(),
+                store.clone(),
+                store.clone(),
+                store.clone(),
                 files,
             )),
-            auth: Arc::new(AuthService::new(identity, sessions.clone(), sessions)),
+            auth: Arc::new(AuthService::new(identity, store.clone(), store)),
             web: Arc::new(web),
         }
     }
