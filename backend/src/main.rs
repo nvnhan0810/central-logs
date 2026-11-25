@@ -76,7 +76,9 @@ async fn main() -> std::io::Result<()> {
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     if web.cors_origins.is_empty() {
-        println!("CORS: no frontend origins allowed (CENTRAL_LOGS_CORS_ORIGINS is empty)");
+        println!(
+            "CORS: only CENTRAL_LOGS_FRONTEND_URL is allowed (CENTRAL_LOGS_CORS_ORIGINS is empty)"
+        );
     }
     println!("central-logs backend listening on http://{addr}");
     axum::serve(

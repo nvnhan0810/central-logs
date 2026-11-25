@@ -117,9 +117,16 @@ async fn every_configured_origin_is_allowed() {
 }
 
 #[tokio::test]
-async fn no_origins_configured_means_no_cors_headers() {
+async fn no_origins_configured_still_allows_the_login_frontend() {
+    // `frontend_url` (the login redirect target) is always allowed, even with an empty list.
     let app = app(&[]);
-    let response = simple_request(&app, FRONTEND).await;
 
-    assert!(header_value(&response, header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+    let allowed = simple_request(&app, FRONTEND).await;
+    assert_eq!(
+        header_value(&allowed, header::ACCESS_CONTROL_ALLOW_ORIGIN).as_deref(),
+        Some(FRONTEND)
+    );
+
+    let other = simple_request(&app, OTHER_FRONTEND).await;
+    assert!(header_value(&other, header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
 }

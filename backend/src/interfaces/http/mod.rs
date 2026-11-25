@@ -94,7 +94,10 @@ impl AppState {
 }
 
 pub fn router(state: AppState) -> Router {
-    let cors = cors_layer(&state.web.cors_origins);
+    // The login-redirect frontend is always allowed too, so an existing `CENTRAL_LOGS_FRONTEND_URL` keeps working.
+    let mut origins = state.web.cors_origins.clone();
+    origins.push(state.web.frontend_url.trim_end_matches('/').to_string());
+    let cors = cors_layer(&origins);
     Router::new()
         .route(
             "/api/projects",
@@ -119,6 +122,8 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// Lets the configured frontend origins call the API with cookies (`fetch(..., { credentials: "include" })`).
+/// Origins are never `*`. The browser keeps the session cookie only when the frontend and backend are same-site
+/// (e.g. both on `localhost`, or sub-domains of one domain); `SameSite=Lax` is unchanged.
 /// Origins are validated at startup (see `main`), so an invalid one here is a programming error.
 fn cors_layer(origins: &[String]) -> CorsLayer {
     let allowed: Vec<HeaderValue> = origins

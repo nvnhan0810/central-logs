@@ -269,3 +269,67 @@ async fn zero_line_limit_is_bad_request() {
     let (status, _) = send(&app, "GET", &uri, None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+async fn cors_headers(app: &axum::Router, method: &str, origin: &str) -> axum::http::HeaderMap {
+    let request = Request::builder()
+        .method(method)
+        .uri("/api/auth/me")
+        .header("origin", origin)
+        .body(Body::empty())
+        .unwrap();
+    app.clone()
+        .oneshot(request)
+        .await
+        .unwrap()
+        .headers()
+        .clone()
+}
+
+#[tokio::test]
+async fn frontend_origin_may_call_the_api_with_credentials() {
+    let app = app();
+    let headers = cors_headers(&app, "GET", "http://localhost:3000").await;
+
+    assert_eq!(
+        headers["access-control-allow-origin"],
+        "http://localhost:3000"
+    );
+    assert_eq!(headers["access-control-allow-credentials"], "true");
+}
+
+#[tokio::test]
+async fn other_origins_get_no_cors_grant() {
+    let app = app();
+    let headers = cors_headers(&app, "GET", "https://evil.example").await;
+
+    // No allow-origin header for an unlisted caller, so the browser rejects the response.
+    assert!(headers.get("access-control-allow-origin").is_none());
+}
+
+#[tokio::test]
+async fn preflight_allows_json_posts_from_the_frontend() {
+    let app = app();
+    let request = Request::builder()
+        .method("OPTIONS")
+        .uri("/api/auth/logout")
+        .header("origin", "http://localhost:3000")
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-type")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+
+    assert!(response.status().is_success());
+    let headers = response.headers();
+    assert_eq!(
+        headers["access-control-allow-origin"],
+        "http://localhost:3000"
+    );
+    assert_eq!(headers["access-control-allow-credentials"], "true");
+    assert!(
+        headers["access-control-allow-methods"]
+            .to_str()
+            .unwrap()
+            .contains("POST")
+    );
+}
