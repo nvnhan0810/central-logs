@@ -54,6 +54,7 @@ Login needs these variables; the server exits at startup if a required one is mi
 | `CENTRAL_LOGS_OIDC_ISSUER` | no | `https://identity.nvnhan0810.com` | Issuer; discovery is read from `{issuer}/.well-known/openid-configuration` |
 | `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | Where the browser is sent after login |
 | `CENTRAL_LOGS_COOKIE_SECURE` | no | `true` | Set `false` only for plain-HTTP local development |
+| `CENTRAL_LOGS_CORS_ORIGINS` | no | `http://localhost:5173` | Comma-separated frontend origins allowed to call the API from a browser, e.g. `https://logs.example.com`. Each is `scheme://host[:port]` with no path; the server refuses to start if one is malformed. Empty means no cross-origin access |
 
 Projects and log repositories are stored in PostgreSQL. Sessions and pending logins are still kept **in memory** and are lost on restart.
 
