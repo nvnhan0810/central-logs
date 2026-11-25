@@ -33,7 +33,7 @@ Login needs these variables; the server exits at startup if a required one is mi
 | `CENTRAL_LOGS_OIDC_REDIRECT_URI` | yes | | Backend callback URL, e.g. `https://logs.example.com/api/auth/callback`; must be registered with the provider |
 | `CENTRAL_LOGS_OIDC_CLIENT_SECRET` | no | | Only for confidential clients; PKCE is always used |
 | `CENTRAL_LOGS_OIDC_ISSUER` | no | `https://identity.nvnhan0810.com` | Issuer; discovery is read from `{issuer}/.well-known/openid-configuration` |
-| `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | Where the browser is sent after login |
+| `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | Frontend origin: where the browser is sent after login, and the only origin allowed to call the API cross-origin (CORS with credentials). Origin only, no path. |
 | `CENTRAL_LOGS_COOKIE_SECURE` | no | `true` | Set `false` only for plain-HTTP local development |
 
 Metadata (projects, log repositories) and sessions are kept **in memory** and are lost on restart.
@@ -74,12 +74,13 @@ Login is an OpenID Connect authorization code flow with PKCE, run by the backend
 1. The frontend navigates the browser to `/api/auth/login?return_to=/some/page` (a same-site relative path only; anything else is 400).
 2. The backend redirects to the identity provider. The user signs in there.
 3. The provider redirects to `/api/auth/callback`. The backend exchanges the code, reads the user's claims from `userinfo`, creates a session, sets cookie `central_logs_session` (`HttpOnly`, `SameSite=Lax`, 8 hours) and redirects to `CENTRAL_LOGS_FRONTEND_URL` + `return_to`.
-4. The frontend calls `GET /api/auth/me` (send cookies, e.g. `fetch(url, { credentials: "include" })` when the frontend is on another origin) to know who is signed in. A 401 means sign in again.
+4. The frontend calls `GET /api/auth/me` directly with `fetch(url, { credentials: "include" })` to know who is signed in. A 401 means sign in again. The backend answers CORS for the `CENTRAL_LOGS_FRONTEND_URL` origin only, with `Access-Control-Allow-Credentials: true`; other origins get no grant.
 5. `POST /api/auth/logout` ends the session.
 
 Errors use the usual shape. `400 invalid_request` covers a bad or reused `state`, an expired login, or a provider-reported error. `502 identity_unavailable` means the provider could not be reached or rejected the exchange; details are not returned to the client.
 
 Notes:
+- The browser sends the session cookie to the API only when the frontend and backend are same-site (for example both on `localhost`, or sub-domains of one domain). `SameSite=Lax` is unchanged, so mixing `localhost` and `127.0.0.1` will not work.
 - Login `state` is single-use and expires after 10 minutes. Sessions expire after 8 hours.
 - The ID token signature is not verified. Claims come from `userinfo`, which is called over TLS with the access token received directly from the provider's token endpoint.
 - Existing `/api/projects` and `/api/log-repositories` routes do not require a session yet.
