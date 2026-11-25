@@ -11,7 +11,7 @@ Layers, dependencies point inward:
 |---|---|---|
 | Domain | `src/domain` | Aggregates `Project`, `LogRepository`; value objects `Name`, `LogDirectory`, `RelativeLogPath`. No I/O. |
 | Application | `src/application` | CQRS: `CommandService` (writes) and `QueryService` (reads); `AuthService` (login); ports `ProjectRepository`, `LogRepositoryRepository`, read models, `LogFileSystem`, `IdentityProvider`, `PendingLoginStore`, `SessionStore`. |
-| Infrastructure | `src/infrastructure` | `PgStore` (projects and log repositories, PostgreSQL), `InMemoryStore` (sessions, pending logins; also metadata in tests), `FsLogFileSystem` (log files), `OidcIdentityProvider` (identity provider). |
+| Infrastructure | `src/infrastructure` | `PgStore` (projects, log repositories, login sessions and pending logins; PostgreSQL), `InMemoryStore` (tests only), `FsLogFileSystem` (log files), `OidcIdentityProvider` (identity provider). |
 | Interfaces | `src/interfaces/http` | axum routes, DTOs, error mapping. |
 
 Domain invariants are enforced by factories, so invalid objects cannot be built:
@@ -56,7 +56,9 @@ Login needs these variables; the server exits at startup if a required one is mi
 | `CENTRAL_LOGS_COOKIE_SECURE` | no | `true` | Set `false` only for plain-HTTP local development |
 | `CENTRAL_LOGS_CORS_ORIGINS` | no | `http://localhost:5173` | Comma-separated frontend origins allowed to call the API from a browser, e.g. `https://logs.example.com`. Each is `scheme://host[:port]` with no path; the server refuses to start if one is malformed. Empty means no cross-origin access |
 
-Projects and log repositories are stored in PostgreSQL. Sessions and pending logins are still kept **in memory** and are lost on restart.
+All state is stored in PostgreSQL: projects, log repositories, login sessions and pending logins.
+A restart does not sign users out. Migration `0002` adds the session tables, so run `make migrate`
+before starting a server that includes this change; the server does not migrate on its own.
 
 ## Test
 
