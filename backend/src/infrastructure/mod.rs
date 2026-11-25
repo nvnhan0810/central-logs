@@ -1,3 +1,4 @@
 //! Adapters implementing the application ports.
 
+pub mod fs;
 pub mod memory;
