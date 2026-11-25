@@ -188,7 +188,6 @@ fn web() -> WebSettings {
     WebSettings {
         frontend_url: "http://localhost:3000".into(),
         cookie_secure: false,
-        cors_origins: vec!["http://localhost:5173".into()],
     }
 }
 
