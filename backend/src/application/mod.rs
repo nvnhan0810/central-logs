@@ -1,5 +1,6 @@
 //! Application layer: CQRS command and query services and the ports they use.
 
+pub mod auth;
 pub mod commands;
 pub mod error;
 pub mod ports;

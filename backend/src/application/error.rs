@@ -14,4 +14,7 @@ pub enum AppError {
     Conflict(String),
     #[error("storage error: {0}")]
     Storage(String),
+    /// The external identity provider failed or could not be reached.
+    #[error("identity provider error: {0}")]
+    Upstream(String),
 }

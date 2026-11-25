@@ -33,6 +33,16 @@ impl ApiError {
     }
 }
 
+impl ApiError {
+    pub fn unauthenticated() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "unauthenticated",
+            message: "sign in required".into(),
+        }
+    }
+}
+
 impl From<AppError> for ApiError {
     fn from(error: AppError) -> Self {
         let (status, code, message) = match &error {
@@ -47,6 +57,12 @@ impl From<AppError> for ApiError {
             AppError::Storage(_) => {
                 return Self::internal();
             }
+            // Identity provider details stay server-side too.
+            AppError::Upstream(_) => (
+                StatusCode::BAD_GATEWAY,
+                "identity_unavailable",
+                "identity provider is unavailable".into(),
+            ),
         };
         Self {
             status,

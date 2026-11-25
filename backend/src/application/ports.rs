@@ -1,5 +1,6 @@
 //! Ports: interfaces the application needs from the outside world.
 
+use crate::application::auth::{Identity, PendingLogin, Session};
 use crate::application::error::AppError;
 use crate::application::views::{LogChunk, LogEntry, LogRepositoryView, ProjectView};
 use crate::domain::{
@@ -80,4 +81,28 @@ pub trait LogFileSystem: Send + Sync {
         offset: u64,
         window: ReadWindow,
     ) -> Result<LogChunk, AppError>;
+}
+
+// ---- Identity ---------------------------------------------------------------
+
+/// External identity provider (OpenID Connect). Implementations own discovery, HTTP and token handling.
+pub trait IdentityProvider: Send + Sync {
+    /// Builds the URL that starts the authorization code flow for this `state`.
+    /// The PKCE challenge is derived from `code_verifier`, which the backend keeps.
+    fn authorization_url(&self, state: &str, code_verifier: &str) -> Result<String, AppError>;
+
+    /// Exchanges the authorization `code` for tokens and returns the user's claims.
+    fn exchange_code(&self, code: &str, code_verifier: &str) -> Result<Identity, AppError>;
+}
+
+pub trait PendingLoginStore: Send + Sync {
+    fn save(&self, state: &str, login: PendingLogin) -> Result<(), AppError>;
+    /// Removes and returns the login, so each `state` can be used only once.
+    fn take(&self, state: &str) -> Result<Option<PendingLogin>, AppError>;
+}
+
+pub trait SessionStore: Send + Sync {
+    fn save(&self, session_id: &str, session: Session) -> Result<(), AppError>;
+    fn find(&self, session_id: &str) -> Result<Option<Session>, AppError>;
+    fn delete(&self, session_id: &str) -> Result<(), AppError>;
 }
