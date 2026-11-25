@@ -2,17 +2,30 @@
 
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use central_logs_backend::interfaces::http::{AppState, router};
+use central_logs_backend::infrastructure::oidc::{OidcConfig, OidcIdentityProvider};
+use central_logs_backend::interfaces::http::{AppState, WebSettings, router};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tower::ServiceExt;
 
 fn app() -> axum::Router {
-    router(AppState::in_memory())
+    // The identity provider is never contacted by these tests; discovery is lazy.
+    let identity = OidcIdentityProvider::new(OidcConfig {
+        issuer: "http://127.0.0.1:9".into(),
+        client_id: "central-logs".into(),
+        client_secret: None,
+        redirect_uri: "http://127.0.0.1:8080/api/auth/callback".into(),
+    });
+    let web = WebSettings {
+        frontend_url: "http://localhost:3000".into(),
+        cookie_secure: false,
+    };
+    router(AppState::in_memory(Arc::new(identity), web))
 }
 
 async fn send(

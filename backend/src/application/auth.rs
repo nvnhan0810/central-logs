@@ -90,7 +90,9 @@ impl AuthService {
             .take(state)?
             .ok_or_else(|| AppError::Validation("invalid or already used login state".into()))?;
         if pending.expires_at <= SystemTime::now() {
-            return Err(AppError::Validation("login expired, please try again".into()));
+            return Err(AppError::Validation(
+                "login expired, please try again".into(),
+            ));
         }
 
         let identity = self.identity.exchange_code(code, &pending.code_verifier)?;
@@ -194,7 +196,9 @@ mod tests {
 
     impl IdentityProvider for FakeIdp {
         fn authorization_url(&self, state: &str, code_verifier: &str) -> Result<String, AppError> {
-            Ok(format!("https://idp.test/authorize?state={state}&v={code_verifier}"))
+            Ok(format!(
+                "https://idp.test/authorize?state={state}&v={code_verifier}"
+            ))
         }
         fn exchange_code(&self, code: &str, code_verifier: &str) -> Result<Identity, AppError> {
             self.verifiers_seen
@@ -220,7 +224,13 @@ mod tests {
     }
 
     fn state_from(url: &str) -> String {
-        url.split("state=").nth(1).unwrap().split('&').next().unwrap().into()
+        url.split("state=")
+            .nth(1)
+            .unwrap()
+            .split('&')
+            .next()
+            .unwrap()
+            .into()
     }
 
     #[test]

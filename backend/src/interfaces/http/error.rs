@@ -33,6 +33,16 @@ impl ApiError {
     }
 }
 
+impl ApiError {
+    pub fn unauthenticated() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "unauthenticated",
+            message: "sign in required".into(),
+        }
+    }
+}
+
 impl From<AppError> for ApiError {
     fn from(error: AppError) -> Self {
         let (status, code, message) = match &error {

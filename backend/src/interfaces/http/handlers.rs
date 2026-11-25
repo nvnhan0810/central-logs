@@ -14,7 +14,7 @@ use crate::application::error::AppError;
 use crate::domain::{LogRepositoryId, ProjectId};
 
 /// Runs blocking file-system or lock work off the async runtime.
-async fn blocking<T, F>(work: F) -> Result<T, ApiError>
+pub(super) async fn blocking<T, F>(work: F) -> Result<T, ApiError>
 where
     F: FnOnce() -> Result<T, AppError> + Send + 'static,
     T: Send + 'static,
