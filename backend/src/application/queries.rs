@@ -85,10 +85,9 @@ impl QueryService {
         directory: &str,
         path: &str,
     ) -> Result<(LogDirectory, RelativeLogPath), AppError> {
-        let repository = self
-            .log_repositories
-            .find(repository_id)?
-            .ok_or_else(|| AppError::NotFound(format!("log repository {}", repository_id.as_uuid())))?;
+        let repository = self.log_repositories.find(repository_id)?.ok_or_else(|| {
+            AppError::NotFound(format!("log repository {}", repository_id.as_uuid()))
+        })?;
         let directory = LogDirectory::parse(directory)?;
         if !repository.contains_directory(&directory) {
             return Err(AppError::NotFound(format!(
@@ -105,8 +104,10 @@ impl QueryService {
 mod tests {
     use super::*;
     use crate::application::commands::{CreateLogRepository, CreateProject};
-    use crate::application::ports::{DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, MAX_BYTES_LIMIT, MAX_LINES_LIMIT};
-    use crate::application::test_support::{harness, Harness};
+    use crate::application::ports::{
+        DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, MAX_BYTES_LIMIT, MAX_LINES_LIMIT,
+    };
+    use crate::application::test_support::{Harness, harness};
 
     struct Seeded {
         h: Harness,
@@ -143,14 +144,13 @@ mod tests {
                 description: "".into(),
             })
             .unwrap();
-        let names: Vec<String> = s
-            .h
-            .queries
-            .list_projects()
-            .unwrap()
-            .into_iter()
-            .map(|p| p.name)
-            .collect();
+        let names: Vec<String> =
+            s.h.queries
+                .list_projects()
+                .unwrap()
+                .into_iter()
+                .map(|p| p.name)
+                .collect();
         assert_eq!(names, vec!["Accounts", "Payments"]);
     }
 
@@ -173,22 +173,17 @@ mod tests {
     #[test]
     fn browse_rejects_directory_not_owned_by_repository() {
         let s = seeded();
-        let err = s
-            .h
-            .queries
-            .browse(s.repo, "/etc", "")
-            .unwrap_err();
+        let err = s.h.queries.browse(s.repo, "/etc", "").unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));
     }
 
     #[test]
     fn browse_rejects_path_traversal() {
         let s = seeded();
-        let err = s
-            .h
-            .queries
-            .browse(s.repo, "/var/log/api", "../secret")
-            .unwrap_err();
+        let err =
+            s.h.queries
+                .browse(s.repo, "/var/log/api", "../secret")
+                .unwrap_err();
         assert!(matches!(err, AppError::Domain(_)));
     }
 
@@ -202,11 +197,10 @@ mod tests {
     #[test]
     fn read_file_rejects_directory_root_as_file() {
         let s = seeded();
-        let err = s
-            .h
-            .queries
-            .read_file(s.repo, "/var/log/api", "", 0, None, None)
-            .unwrap_err();
+        let err =
+            s.h.queries
+                .read_file(s.repo, "/var/log/api", "", 0, None, None)
+                .unwrap_err();
         assert!(matches!(err, AppError::Validation(_)));
     }
 
@@ -214,9 +208,21 @@ mod tests {
     fn read_file_clamps_window_to_hard_limits() {
         let s = seeded();
         s.h.queries
-            .read_file(s.repo, "/var/log/api", "app.log", 0, Some(usize::MAX), Some(usize::MAX))
+            .read_file(
+                s.repo,
+                "/var/log/api",
+                "app.log",
+                0,
+                Some(usize::MAX),
+                Some(usize::MAX),
+            )
             .unwrap();
-        let window = s.h.files.last_window.lock().unwrap().expect("window recorded");
+        let window =
+            s.h.files
+                .last_window
+                .lock()
+                .unwrap()
+                .expect("window recorded");
         assert_eq!(window.max_lines, MAX_LINES_LIMIT);
         assert_eq!(window.max_bytes, MAX_BYTES_LIMIT);
     }
@@ -227,7 +233,12 @@ mod tests {
         s.h.queries
             .read_file(s.repo, "/var/log/api", "app.log", 0, None, None)
             .unwrap();
-        let window = s.h.files.last_window.lock().unwrap().expect("window recorded");
+        let window =
+            s.h.files
+                .last_window
+                .lock()
+                .unwrap()
+                .expect("window recorded");
         assert_eq!(window.max_lines, DEFAULT_MAX_LINES);
         assert_eq!(window.max_bytes, DEFAULT_MAX_BYTES);
     }
@@ -235,11 +246,10 @@ mod tests {
     #[test]
     fn read_file_rejects_zero_line_limit() {
         let s = seeded();
-        let err = s
-            .h
-            .queries
-            .read_file(s.repo, "/var/log/api", "app.log", 0, Some(0), None)
-            .unwrap_err();
+        let err =
+            s.h.queries
+                .read_file(s.repo, "/var/log/api", "app.log", 0, Some(0), None)
+                .unwrap_err();
         assert!(matches!(err, AppError::Validation(_)));
     }
 }

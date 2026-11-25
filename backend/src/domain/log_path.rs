@@ -31,9 +31,7 @@ impl RelativeLogPath {
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         let trimmed = raw.trim().trim_matches('/');
         let path = Path::new(trimmed);
-        let valid = path
-            .components()
-            .all(|c| matches!(c, Component::Normal(_)));
+        let valid = path.components().all(|c| matches!(c, Component::Normal(_)));
         if !valid {
             return Err(DomainError::InvalidLogPath(raw.to_owned()));
         }
@@ -78,7 +76,9 @@ mod tests {
     fn relative_log_path_accepts_nested_and_root() {
         assert!(RelativeLogPath::parse("").unwrap().is_root());
         assert_eq!(
-            RelativeLogPath::parse("/2026/11/app.log/").unwrap().as_path(),
+            RelativeLogPath::parse("/2026/11/app.log/")
+                .unwrap()
+                .as_path(),
             Path::new("2026/11/app.log")
         );
     }

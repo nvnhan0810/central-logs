@@ -101,7 +101,9 @@ mod tests {
     fn create_project_persists_and_returns_id() {
         let h = harness(&[]);
         let id = h.commands.create_project(new_project("Payments")).unwrap();
-        let stored = ProjectRepository::find(h.store.as_ref(), id).unwrap().expect("project saved");
+        let stored = ProjectRepository::find(h.store.as_ref(), id)
+            .unwrap()
+            .expect("project saved");
         assert_eq!(stored.name().as_str(), "Payments");
     }
 
@@ -109,7 +111,10 @@ mod tests {
     fn create_project_rejects_duplicate_name() {
         let h = harness(&[]);
         h.commands.create_project(new_project("Payments")).unwrap();
-        let err = h.commands.create_project(new_project(" Payments ")).unwrap_err();
+        let err = h
+            .commands
+            .create_project(new_project(" Payments "))
+            .unwrap_err();
         assert!(matches!(err, AppError::Conflict(_)));
     }
 
@@ -161,7 +166,9 @@ mod tests {
                 directories: vec!["/var/log/api".into(), "/srv/app/logs".into()],
             })
             .unwrap();
-        let stored = LogRepositoryRepository::find(h.store.as_ref(), repo_id).unwrap().expect("repository saved");
+        let stored = LogRepositoryRepository::find(h.store.as_ref(), repo_id)
+            .unwrap()
+            .expect("repository saved");
         assert_eq!(stored.project_id(), project);
         assert_eq!(stored.directories().len(), 2);
     }

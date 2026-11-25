@@ -41,11 +41,7 @@ impl ProjectRepository for InMemoryStore {
     }
 
     fn name_taken(&self, name: &Name) -> Result<bool, AppError> {
-        Ok(self
-            .lock()?
-            .projects
-            .values()
-            .any(|p| p.name() == name))
+        Ok(self.lock()?.projects.values().any(|p| p.name() == name))
     }
 }
 
@@ -64,7 +60,12 @@ impl LogRepositoryRepository for InMemoryStore {
 
 impl ProjectReadModel for InMemoryStore {
     fn list(&self) -> Result<Vec<ProjectView>, AppError> {
-        let mut views: Vec<ProjectView> = self.lock()?.projects.values().map(ProjectView::from).collect();
+        let mut views: Vec<ProjectView> = self
+            .lock()?
+            .projects
+            .values()
+            .map(ProjectView::from)
+            .collect();
         views.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(views)
     }

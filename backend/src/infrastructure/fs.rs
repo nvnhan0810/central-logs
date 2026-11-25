@@ -39,11 +39,15 @@ impl LogFileSystem for FsLogFileSystem {
             let item = item.map_err(storage)?;
             let child = item.path();
             // Skip dangling links and links that point outside the directory.
-            let Ok(canonical) = fs::canonicalize(&child) else { continue };
+            let Ok(canonical) = fs::canonicalize(&child) else {
+                continue;
+            };
             if !canonical.starts_with(&root) {
                 continue;
             }
-            let Ok(meta) = fs::metadata(&canonical) else { continue };
+            let Ok(meta) = fs::metadata(&canonical) else {
+                continue;
+            };
             let name = item.file_name().to_string_lossy().into_owned();
             let (kind, size) = if meta.is_dir() {
                 (EntryKind::Directory, None)
@@ -66,7 +70,8 @@ impl LogFileSystem for FsLogFileSystem {
         }
 
         entries.sort_by(|a, b| {
-            (a.kind != EntryKind::Directory, &a.name).cmp(&(b.kind != EntryKind::Directory, &b.name))
+            (a.kind != EntryKind::Directory, &a.name)
+                .cmp(&(b.kind != EntryKind::Directory, &b.name))
         });
         Ok(entries)
     }
@@ -205,7 +210,9 @@ mod tests {
         let fs_ = FsLogFileSystem;
         let dir = dir_of(&tmp);
 
-        let first = fs_.read_chunk(&dir, &rel("app.log"), 0, window(2, 1024)).unwrap();
+        let first = fs_
+            .read_chunk(&dir, &rel("app.log"), 0, window(2, 1024))
+            .unwrap();
         let texts: Vec<&str> = first.lines.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(texts, vec!["a", "b"]);
         assert_eq!(first.next_offset, 4);
@@ -287,7 +294,9 @@ mod tests {
         let fs_ = FsLogFileSystem;
         let dir = dir_of(&tmp);
 
-        let first = fs_.read_chunk(&dir, &rel("long.log"), 0, window(10, 100)).unwrap();
+        let first = fs_
+            .read_chunk(&dir, &rel("long.log"), 0, window(10, 100))
+            .unwrap();
         assert_eq!(first.lines.len(), 1);
         assert!(first.lines[0].truncated);
         assert_eq!(first.next_offset, 100);
@@ -295,7 +304,9 @@ mod tests {
         let mut collected = String::new();
         let mut offset = 0;
         loop {
-            let chunk = fs_.read_chunk(&dir, &rel("long.log"), offset, window(10, 100)).unwrap();
+            let chunk = fs_
+                .read_chunk(&dir, &rel("long.log"), offset, window(10, 100))
+                .unwrap();
             for l in &chunk.lines {
                 collected.push_str(&l.text);
             }
@@ -357,8 +368,11 @@ mod tests {
         let outside = TempDir::new().unwrap();
         write(&outside, "secret.txt", b"top secret");
         let tmp = TempDir::new().unwrap();
-        std::os::unix::fs::symlink(outside.path().join("secret.txt"), tmp.path().join("link.log"))
-            .unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            tmp.path().join("link.log"),
+        )
+        .unwrap();
 
         let fs_ = FsLogFileSystem;
         let dir = dir_of(&tmp);
