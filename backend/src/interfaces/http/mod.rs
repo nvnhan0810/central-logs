@@ -9,13 +9,18 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
+use tokio::runtime::Handle;
 
 use crate::application::auth::AuthService;
 use crate::application::commands::CommandService;
-use crate::application::ports::IdentityProvider;
+use crate::application::ports::{
+    IdentityProvider, LogRepositoryReadModel, LogRepositoryRepository, ProjectReadModel,
+    ProjectRepository,
+};
 use crate::application::queries::QueryService;
 use crate::infrastructure::fs::FsLogFileSystem;
 use crate::infrastructure::memory::InMemoryStore;
+use crate::infrastructure::postgres::{PgPool, PgStore};
 
 pub use error::ApiError;
 
@@ -37,23 +42,52 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Wires the default adapters: in-memory metadata and sessions, and the host file system.
+    /// Wires the in-memory adapters for metadata and sessions. Used by tests; data is lost on restart.
     pub fn in_memory(identity: Arc<dyn IdentityProvider>, web: WebSettings) -> Self {
         let store = Arc::new(InMemoryStore::default());
+        Self::assemble(identity, web, store.clone(), store)
+    }
+
+    /// Stores projects and log repositories in PostgreSQL. Sessions and pending logins stay in memory.
+    /// `runtime` must be the tokio runtime that created `pool`.
+    pub fn with_postgres(
+        identity: Arc<dyn IdentityProvider>,
+        web: WebSettings,
+        pool: PgPool,
+        runtime: Handle,
+    ) -> Self {
+        let metadata = Arc::new(PgStore::new(pool, runtime));
+        let sessions = Arc::new(InMemoryStore::default());
+        Self::assemble(identity, web, metadata, sessions)
+    }
+
+    fn assemble<M>(
+        identity: Arc<dyn IdentityProvider>,
+        web: WebSettings,
+        metadata: Arc<M>,
+        sessions: Arc<InMemoryStore>,
+    ) -> Self
+    where
+        M: ProjectRepository
+            + LogRepositoryRepository
+            + ProjectReadModel
+            + LogRepositoryReadModel
+            + 'static,
+    {
         let files = Arc::new(FsLogFileSystem);
         Self {
             commands: Arc::new(CommandService::new(
-                store.clone(),
-                store.clone(),
+                metadata.clone(),
+                metadata.clone(),
                 files.clone(),
             )),
             queries: Arc::new(QueryService::new(
-                store.clone(),
-                store.clone(),
-                store.clone(),
+                metadata.clone(),
+                metadata.clone(),
+                metadata.clone(),
                 files,
             )),
-            auth: Arc::new(AuthService::new(identity, store.clone(), store)),
+            auth: Arc::new(AuthService::new(identity, sessions.clone(), sessions)),
             web: Arc::new(web),
         }
     }
