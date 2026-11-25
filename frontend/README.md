@@ -41,24 +41,28 @@ Start the backend first (see `../backend/README.md`), then:
 
 ```sh
 npm install
-npm run dev          # http://localhost:3000, /api is proxied to the backend
+npm run dev          # http://localhost:3000, calls the backend directly
 ```
 
-Set `CENTRAL_LOGS_FRONTEND_URL=http://localhost:3000` on the backend. That is the default.
+The frontend calls the backend at `http://localhost:8080/api` (set `VITE_API_BASE_URL` to change it).
+The backend must allow the frontend origin: keep `CENTRAL_LOGS_FRONTEND_URL=http://localhost:3000`
+(the default). It is also the only origin granted CORS with credentials.
 For plain-HTTP local development, also set `CENTRAL_LOGS_COOKIE_SECURE=false`.
+
+Use `localhost` for both, not `127.0.0.1` mixed with `localhost`: the session cookie is
+`SameSite=Lax`, so the frontend and backend must be same-site, and different hostnames are not.
 
 Environment variables for the frontend:
 
-| Variable            | Default                 | Meaning                                                           |
-| ------------------- | ----------------------- | ----------------------------------------------------------------- |
-| `VITE_API_BASE_URL` | `/api`                  | API base URL. Keep it same-origin: the backend has no CORS layer. |
-| `VITE_BACKEND_URL`  | `http://127.0.0.1:8080` | Dev-server proxy target (read by `vite.config.ts`)                |
+| Variable            | Default                     | Meaning                                                                |
+| ------------------- | --------------------------- | ---------------------------------------------------------------------- |
+| `VITE_API_BASE_URL` | `http://localhost:8080/api` | Backend API base URL. Must be same-site with the frontend (see above). |
 
 ## Scripts
 
 | Command                | Purpose                                      |
 | ---------------------- | -------------------------------------------- |
-| `npm run dev`          | Dev server with the `/api` proxy             |
+| `npm run dev`          | Dev server on port 3000                      |
 | `npm run build`        | Type check, then production build to `dist/` |
 | `npm run typecheck`    | `vue-tsc` over `src` and `tests`             |
 | `npm run lint`         | ESLint, zero warnings allowed                |

@@ -29,12 +29,12 @@ describe('ApiClient', () => {
 
   it('sends cookies and JSON accept header', async () => {
     const { fetch, calls } = recordingFetch(jsonResponse(200, { ok: true }));
-    const client = new ApiClient({ baseUrl: '/api', fetch });
+    const client = new ApiClient({ baseUrl: 'http://localhost:8080/api', fetch });
 
     await client.request('GET', '/auth/me');
 
     expect(calls[0]).toEqual([
-      '/api/auth/me',
+      'http://localhost:8080/api/auth/me',
       { method: 'GET', credentials: 'include', headers: { Accept: 'application/json' } },
     ]);
   });

@@ -14,7 +14,7 @@ export class ApiError extends Error {
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export interface ApiClientOptions {
-  /** Prefix for every path, e.g. `/api` (same origin, proxied in dev). */
+  /** Prefix for every path, e.g. `http://localhost:8080/api` (called directly, with CORS). */
   readonly baseUrl: string;
   /** Injected for tests; defaults to the global `fetch`. */
   readonly fetch?: FetchLike;
