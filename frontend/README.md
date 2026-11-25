@@ -45,8 +45,8 @@ npm run dev          # http://localhost:5173 (Vite default), calls the backend d
 ```
 
 The frontend calls the backend at `http://localhost:8080/api` (set `VITE_API_BASE_URL` to change it).
-The backend sends the browser back to `CENTRAL_LOGS_FRONTEND_URL` after login (default
-`http://localhost:3000`), so for this dev server set `CENTRAL_LOGS_FRONTEND_URL=http://localhost:5173`.
+The backend sends the browser back to `CENTRAL_LOGS_FRONTEND_URL` after login and allows this origin to
+call the API (default `http://localhost:3000`), so for this dev server set `CENTRAL_LOGS_FRONTEND_URL=http://localhost:5173`.
 For plain-HTTP local development, also set `CENTRAL_LOGS_COOKIE_SECURE=false`.
 
 Use `localhost` for both, not `127.0.0.1` mixed with `localhost`: the session cookie is

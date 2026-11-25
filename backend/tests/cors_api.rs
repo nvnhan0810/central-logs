@@ -1,4 +1,4 @@
-//! CORS: the configured frontend origins may call the API from the browser, with cookies.
+//! CORS: the configured frontend origin may call the API from the browser, with cookies.
 
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use tower::ServiceExt;
 const FRONTEND: &str = "http://localhost:5173";
 const OTHER_FRONTEND: &str = "https://logs.example.com";
 
-fn app(cors_origins: &[&str]) -> Router {
+fn app(frontend_url: &str) -> Router {
     let identity = OidcIdentityProvider::new(OidcConfig {
         issuer: "http://127.0.0.1:9".into(),
         client_id: "central-logs".into(),
@@ -20,9 +20,8 @@ fn app(cors_origins: &[&str]) -> Router {
         redirect_uri: "http://127.0.0.1:8080/api/auth/callback".into(),
     });
     let web = WebSettings {
-        frontend_url: FRONTEND.into(),
+        frontend_url: frontend_url.into(),
         cookie_secure: false,
-        cors_origins: cors_origins.iter().map(|o| o.to_string()).collect(),
     };
     router(AppState::in_memory(Arc::new(identity), web))
 }
@@ -57,8 +56,8 @@ async fn simple_request(app: &Router, origin: &str) -> axum::response::Response 
 }
 
 #[tokio::test]
-async fn preflight_from_configured_origin_allows_credentials_and_json() {
-    let app = app(&[FRONTEND]);
+async fn preflight_from_frontend_allows_credentials_and_json() {
+    let app = app(FRONTEND);
     let response = preflight(&app, FRONTEND).await;
 
     assert!(response.status().is_success());
@@ -80,8 +79,8 @@ async fn preflight_from_configured_origin_allows_credentials_and_json() {
 }
 
 #[tokio::test]
-async fn actual_request_from_configured_origin_gets_cors_headers() {
-    let app = app(&[FRONTEND]);
+async fn actual_request_from_frontend_gets_cors_headers() {
+    let app = app(FRONTEND);
     let response = simple_request(&app, FRONTEND).await;
 
     assert_eq!(response.status(), StatusCode::OK);
@@ -97,36 +96,28 @@ async fn actual_request_from_configured_origin_gets_cors_headers() {
 
 #[tokio::test]
 async fn unknown_origin_gets_no_cors_headers() {
-    let app = app(&[FRONTEND]);
+    let app = app(FRONTEND);
     let response = simple_request(&app, "https://evil.example").await;
 
     assert!(header_value(&response, header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
 }
 
 #[tokio::test]
-async fn every_configured_origin_is_allowed() {
-    let app = app(&[FRONTEND, OTHER_FRONTEND]);
+async fn other_origin_gets_no_cors_grant() {
+    let app = app(FRONTEND);
+    let response = simple_request(&app, OTHER_FRONTEND).await;
 
-    for origin in [FRONTEND, OTHER_FRONTEND] {
-        let response = simple_request(&app, origin).await;
-        assert_eq!(
-            header_value(&response, header::ACCESS_CONTROL_ALLOW_ORIGIN).as_deref(),
-            Some(origin)
-        );
-    }
+    assert!(header_value(&response, header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
 }
 
 #[tokio::test]
-async fn no_origins_configured_still_allows_the_login_frontend() {
-    // `frontend_url` (the login redirect target) is always allowed, even with an empty list.
-    let app = app(&[]);
+async fn trailing_slash_in_frontend_url_still_matches_browser_origin() {
+    // Browsers send origins without a trailing slash; the router strips one from the setting.
+    let app = app(&format!("{FRONTEND}/"));
+    let response = simple_request(&app, FRONTEND).await;
 
-    let allowed = simple_request(&app, FRONTEND).await;
     assert_eq!(
-        header_value(&allowed, header::ACCESS_CONTROL_ALLOW_ORIGIN).as_deref(),
+        header_value(&response, header::ACCESS_CONTROL_ALLOW_ORIGIN).as_deref(),
         Some(FRONTEND)
     );
-
-    let other = simple_request(&app, OTHER_FRONTEND).await;
-    assert!(header_value(&other, header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
 }

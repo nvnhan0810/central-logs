@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method, header};
+use axum::response::Html;
 use axum::routing::{get, post};
 use tokio::runtime::Handle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -29,13 +30,11 @@ pub use error::ApiError;
 /// Settings the HTTP layer needs from the deployment.
 #[derive(Debug, Clone)]
 pub struct WebSettings {
-    /// Origin of the frontend, where the browser is sent after login (e.g. `https://logs.example.com`).
+    /// Origin of the frontend (e.g. `https://logs.example.com`). The browser is sent here after login,
+    /// and it is the only origin allowed to call the API from a browser. Never `*`, because requests carry cookies.
     pub frontend_url: String,
     /// Set the session cookie with `Secure`. Turn off only for plain-HTTP local development.
     pub cookie_secure: bool,
-    /// Origins allowed to call the API from a browser, e.g. `http://localhost:5173`.
-    /// Each entry is `scheme://host[:port]` with no path. Requests carry cookies, so origins are never `*`.
-    pub cors_origins: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -93,12 +92,17 @@ impl AppState {
     }
 }
 
+/// Index page: a plain "hello" so anyone opening the backend URL can see it is online.
+async fn index() -> Html<&'static str> {
+    Html(
+        "<!doctype html>\n<html lang=\"en\">\n<head><meta charset=\"utf-8\"><title>central-logs</title></head>\n<body>\nhello\n</body>\n</html>\n",
+    )
+}
+
 pub fn router(state: AppState) -> Router {
-    // The login-redirect frontend is always allowed too, so an existing `CENTRAL_LOGS_FRONTEND_URL` keeps working.
-    let mut origins = state.web.cors_origins.clone();
-    origins.push(state.web.frontend_url.trim_end_matches('/').to_string());
-    let cors = cors_layer(&origins);
+    let cors = cors_layer(state.web.frontend_url.trim_end_matches('/'));
     Router::new()
+        .route("/", get(index))
         .route(
             "/api/projects",
             get(handlers::list_projects).post(handlers::create_project),
@@ -121,17 +125,14 @@ pub fn router(state: AppState) -> Router {
         .with_state(state)
 }
 
-/// Lets the configured frontend origins call the API with cookies (`fetch(..., { credentials: "include" })`).
-/// Origins are never `*`. The browser keeps the session cookie only when the frontend and backend are same-site
+/// Lets the configured frontend call the API with cookies (`fetch(..., { credentials: "include" })`).
+/// The origin is never `*`. The browser keeps the session cookie only when the frontend and backend are same-site
 /// (e.g. both on `localhost`, or sub-domains of one domain); `SameSite=Lax` is unchanged.
-/// Origins are validated at startup (see `main`), so an invalid one here is a programming error.
-fn cors_layer(origins: &[String]) -> CorsLayer {
-    let allowed: Vec<HeaderValue> = origins
-        .iter()
-        .map(|o| HeaderValue::from_str(o).expect("CORS origin must be a valid header value"))
-        .collect();
+/// The origin is validated at startup (see `main`), so an invalid one here is a programming error.
+fn cors_layer(origin: &str) -> CorsLayer {
+    let allowed = HeaderValue::from_str(origin).expect("CORS origin must be a valid header value");
     CorsLayer::new()
-        .allow_origin(AllowOrigin::list(allowed))
+        .allow_origin(AllowOrigin::list([allowed]))
         .allow_methods([Method::GET, Method::POST])
         .allow_headers([header::CONTENT_TYPE])
         .allow_credentials(true)

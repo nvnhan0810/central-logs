@@ -52,9 +52,8 @@ Login needs these variables; the server exits at startup if a required one is mi
 | `CENTRAL_LOGS_OIDC_REDIRECT_URI` | yes | | Backend callback URL, e.g. `https://logs.example.com/api/auth/callback`; must be registered with the provider |
 | `CENTRAL_LOGS_OIDC_CLIENT_SECRET` | no | | Only for confidential clients; PKCE is always used |
 | `CENTRAL_LOGS_OIDC_ISSUER` | no | `https://identity.nvnhan0810.com` | Issuer; discovery is read from `{issuer}/.well-known/openid-configuration` |
-| `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | Frontend origin: where the browser is sent after login. It is also allowed to call the API cross-origin (CORS with credentials). Origin only, no path. |
+| `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | The frontend origin, e.g. `https://logs.example.com`. The browser is sent here after login, and it is the only origin allowed to call the API cross-origin (CORS with credentials). `scheme://host[:port]`, no path; the server refuses to start if it is malformed. |
 | `CENTRAL_LOGS_COOKIE_SECURE` | no | `true` | Set `false` only for plain-HTTP local development |
-| `CENTRAL_LOGS_CORS_ORIGINS` | no | `http://localhost:5173` | Comma-separated frontend origins allowed to call the API from a browser, e.g. `https://logs.example.com`. Each is `scheme://host[:port]` with no path; the server refuses to start if one is malformed. `CENTRAL_LOGS_FRONTEND_URL` is always allowed in addition. Empty means only that frontend |
 
 All state is stored in PostgreSQL: projects, log repositories, login sessions and pending logins.
 A restart does not sign users out. Migration `0002` adds the session tables, so run `make migrate`
@@ -103,7 +102,7 @@ Login is an OpenID Connect authorization code flow with PKCE, run by the backend
 1. The frontend navigates the browser to `/api/auth/login?return_to=/some/page` (a same-site relative path only; anything else is 400).
 2. The backend redirects to the identity provider. The user signs in there.
 3. The provider redirects to `/api/auth/callback`. The backend exchanges the code, reads the user's claims from `userinfo`, creates a session, sets cookie `central_logs_session` (`HttpOnly`, `SameSite=Lax`, 8 hours) and redirects to `CENTRAL_LOGS_FRONTEND_URL` + `return_to`.
-4. The frontend calls `GET /api/auth/me` directly with `fetch(url, { credentials: "include" })` to know who is signed in. A 401 means sign in again. The backend answers CORS for the origins in `CENTRAL_LOGS_CORS_ORIGINS` plus `CENTRAL_LOGS_FRONTEND_URL`, with `Access-Control-Allow-Credentials: true`; other origins get no grant.
+4. The frontend calls `GET /api/auth/me` directly with `fetch(url, { credentials: "include" })` to know who is signed in. A 401 means sign in again. The backend answers CORS for the origin in `CENTRAL_LOGS_FRONTEND_URL`, with `Access-Control-Allow-Credentials: true`; other origins get no grant.
 5. `POST /api/auth/logout` ends the session.
 
 Errors use the usual shape. `400 invalid_request` covers a bad or reused `state`, an expired login, or a provider-reported error. `502 identity_unavailable` means the provider could not be reached or rejected the exchange; details are not returned to the client.

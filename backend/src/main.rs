@@ -7,30 +7,27 @@ use central_logs_backend::interfaces::http::{AppState, WebSettings, router};
 
 const DEFAULT_ISSUER: &str = "https://identity.nvnhan0810.com";
 const DEFAULT_FRONTEND_URL: &str = "http://localhost:3000";
-const DEFAULT_CORS_ORIGINS: &str = "http://localhost:5173";
 
-/// Parses a comma-separated list of origins such as `http://localhost:5173,https://logs.example.com`.
+/// Validates the frontend origin, e.g. `https://logs.example.com` or `http://localhost:5173`.
 /// A trailing slash is dropped, because browsers send origins without one.
-fn parse_cors_origins(raw: &str) -> std::io::Result<Vec<String>> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            let origin = s.trim_end_matches('/');
-            let (scheme, host) = origin.split_once("://").ok_or_else(|| {
-                Error::new(ErrorKind::InvalidInput, format!("invalid CORS origin: {s}"))
-            })?;
-            let valid_scheme = matches!(scheme, "http" | "https");
-            let valid_host = !host.is_empty() && !host.contains(['/', '?', '#', ' ']);
-            if !valid_scheme || !valid_host {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    format!("invalid CORS origin (expected scheme://host[:port]): {s}"),
-                ));
-            }
-            Ok(origin.to_string())
-        })
-        .collect()
+fn parse_frontend_url(raw: &str) -> std::io::Result<String> {
+    let s = raw.trim();
+    let origin = s.trim_end_matches('/');
+    let (scheme, host) = origin.split_once("://").ok_or_else(|| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            format!("invalid frontend URL: {s}"),
+        )
+    })?;
+    let valid_scheme = matches!(scheme, "http" | "https");
+    let valid_host = !host.is_empty() && !host.contains(['/', '?', '#', ' ']);
+    if !valid_scheme || !valid_host {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("invalid frontend URL (expected scheme://host[:port], no path): {s}"),
+        ));
+    }
+    Ok(origin.to_string())
 }
 
 fn required(name: &str) -> std::io::Result<String> {
@@ -55,14 +52,13 @@ async fn main() -> std::io::Result<()> {
         redirect_uri: required("CENTRAL_LOGS_OIDC_REDIRECT_URI")?,
     });
     let web = WebSettings {
-        frontend_url: optional("CENTRAL_LOGS_FRONTEND_URL")
-            .unwrap_or_else(|| DEFAULT_FRONTEND_URL.into()),
+        // The one frontend: where the browser is sent after login, and the only origin allowed to call the API.
+        frontend_url: parse_frontend_url(
+            &optional("CENTRAL_LOGS_FRONTEND_URL").unwrap_or_else(|| DEFAULT_FRONTEND_URL.into()),
+        )?,
         // Secure by default; set CENTRAL_LOGS_COOKIE_SECURE=false only for plain-HTTP local development.
         cookie_secure: optional("CENTRAL_LOGS_COOKIE_SECURE")
             .is_none_or(|v| !matches!(v.as_str(), "false" | "0")),
-        cors_origins: parse_cors_origins(
-            &optional("CENTRAL_LOGS_CORS_ORIGINS").unwrap_or_else(|| DEFAULT_CORS_ORIGINS.into()),
-        )?,
     };
 
     let db = DbConfig::from_env()?;
@@ -75,11 +71,6 @@ async fn main() -> std::io::Result<()> {
     })?;
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    if web.cors_origins.is_empty() {
-        println!(
-            "CORS: only CENTRAL_LOGS_FRONTEND_URL is allowed (CENTRAL_LOGS_CORS_ORIGINS is empty)"
-        );
-    }
     println!("central-logs backend listening on http://{addr}");
     axum::serve(
         listener,
@@ -95,28 +86,30 @@ async fn main() -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_cors_origins;
+    use super::parse_frontend_url;
 
     #[test]
-    fn splits_trims_and_drops_trailing_slashes() {
-        let origins =
-            parse_cors_origins(" http://localhost:5173/ , https://logs.example.com ,").unwrap();
+    fn drops_a_trailing_slash() {
         assert_eq!(
-            origins,
-            ["http://localhost:5173", "https://logs.example.com"]
+            parse_frontend_url(" https://logs.example.com/ ").unwrap(),
+            "https://logs.example.com"
         );
     }
 
     #[test]
-    fn empty_value_means_no_origins() {
-        assert!(parse_cors_origins("").unwrap().is_empty());
+    fn accepts_a_port() {
+        assert_eq!(
+            parse_frontend_url("http://localhost:5173").unwrap(),
+            "http://localhost:5173"
+        );
     }
 
     #[test]
-    fn rejects_origins_with_a_path_or_bad_scheme() {
-        assert!(parse_cors_origins("http://localhost:5173/app").is_err());
-        assert!(parse_cors_origins("localhost:5173").is_err());
-        assert!(parse_cors_origins("ftp://example.com").is_err());
-        assert!(parse_cors_origins("http://").is_err());
+    fn rejects_a_path_a_missing_scheme_or_a_bad_scheme() {
+        assert!(parse_frontend_url("http://localhost:5173/app").is_err());
+        assert!(parse_frontend_url("localhost:5173").is_err());
+        assert!(parse_frontend_url("ftp://example.com").is_err());
+        assert!(parse_frontend_url("http://").is_err());
+        assert!(parse_frontend_url("").is_err());
     }
 }
