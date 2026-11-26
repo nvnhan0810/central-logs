@@ -25,13 +25,27 @@ die() {
 
 # Non-interactive shells (webhook/CI runners) do not load the login profile, so a
 # Node version manager's npm is often missing from PATH. Try the common managers.
+# fnm is checked by absolute path too: its binary usually lives in ~/.local/share/fnm,
+# which is not on the runner's PATH even though the install itself is fine.
 ensure_npm() {
   if command -v npm >/dev/null 2>&1; then
     return
   fi
+  local fnm_dir="${FNM_DIR:-$HOME/.local/share/fnm}"
+  local fnm_bin=""
   if command -v fnm >/dev/null 2>&1; then
-    eval "$(fnm env --shell bash)"
-  elif [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
+    fnm_bin="fnm"
+  elif [[ -x "$fnm_dir/fnm" ]]; then
+    fnm_bin="$fnm_dir/fnm"
+  fi
+  if [[ -n "$fnm_bin" ]]; then
+    eval "$("$fnm_bin" env --shell bash)" || true
+  fi
+  if ! command -v npm >/dev/null 2>&1 && [[ -x "$fnm_dir/aliases/default/bin/npm" ]]; then
+    PATH="$fnm_dir/aliases/default/bin:$PATH"
+    export PATH
+  fi
+  if ! command -v npm >/dev/null 2>&1 && [[ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]]; then
     set +u
     # shellcheck disable=SC1091
     . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
