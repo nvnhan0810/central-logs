@@ -3,7 +3,7 @@ import { createRouter, createWebHistory, type Router } from 'vue-router';
 import type { AuthService } from '@/application/auth/auth-service';
 import { toSafeReturnTo } from '@/domain/auth/return-to';
 
-import HomePage from '../pages/HomePage.vue';
+import LogsPage from '../pages/LogsPage.vue';
 import LoginPage from '../pages/LoginPage.vue';
 
 import { decideAccess } from './access';
@@ -23,7 +23,7 @@ export function createAppRouter(auth: AuthService): Router {
       {
         path: '/',
         name: ROUTE_NAME.home,
-        component: HomePage,
+        component: LogsPage,
         meta: { guestOnly: false, requiresAuth: true },
       },
       { path: '/:pathMatch(.*)*', redirect: { name: ROUTE_NAME.home } },

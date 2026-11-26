@@ -1,4 +1,4 @@
-import { onScopeDispose, ref, shallowRef } from 'vue';
+import { onScopeDispose, ref, shallowRef, type Ref, type ShallowRef } from 'vue';
 
 import type { LogGateway, LogLine } from '@/application/logs/log-gateway';
 import { readFrom, type FileTarget } from '@/application/logs/read-from';
@@ -8,11 +8,11 @@ import { errorMessage } from './error-message';
 export type FileStatus = 'idle' | 'loading' | 'live' | 'error';
 
 export interface UseLogFile {
-  readonly target: ReturnType<typeof shallowRef<FileTarget | null>>;
+  readonly target: ShallowRef<FileTarget | null>;
   /** Every line read so far, oldest first. */
-  readonly lines: ReturnType<typeof shallowRef<readonly LogLine[]>>;
-  readonly status: ReturnType<typeof ref<FileStatus>>;
-  readonly error: ReturnType<typeof ref<string | null>>;
+  readonly lines: ShallowRef<readonly LogLine[]>;
+  readonly status: Ref<FileStatus>;
+  readonly error: Ref<string | null>;
   /** Opens a file, reads it to the end, then keeps reading the newly appended content. */
   open(next: FileTarget): Promise<void>;
   close(): void;
