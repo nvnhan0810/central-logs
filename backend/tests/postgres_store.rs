@@ -161,6 +161,49 @@ fn log_repositories_keep_directory_order_and_replace_on_save() {
 
 #[test]
 #[ignore = "needs a test database, see module docs"]
+fn deleting_a_project_cascades_to_its_log_repositories() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let owner = project("payments", "");
+    ProjectRepository::save(&store, &owner).unwrap();
+    let repo = LogRepository::create(LogRepositoryId::new(), owner.id(), "api", &["/var/log/api"])
+        .unwrap();
+    LogRepositoryRepository::save(&store, &repo).unwrap();
+
+    ProjectRepository::delete(&store, owner.id()).unwrap();
+    assert_eq!(ProjectRepository::find(&store, owner.id()).unwrap(), None);
+    assert_eq!(
+        LogRepositoryRepository::find(&store, repo.id()).unwrap(),
+        None
+    );
+    assert!(store.list_by_project(owner.id()).unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
+fn deleting_a_log_repository_keeps_its_project() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let owner = project("payments", "");
+    ProjectRepository::save(&store, &owner).unwrap();
+    let repo = LogRepository::create(LogRepositoryId::new(), owner.id(), "api", &["/var/log/api"])
+        .unwrap();
+    LogRepositoryRepository::save(&store, &repo).unwrap();
+
+    LogRepositoryRepository::delete(&store, repo.id()).unwrap();
+    assert_eq!(
+        LogRepositoryRepository::find(&store, repo.id()).unwrap(),
+        None
+    );
+    assert!(
+        ProjectRepository::find(&store, owner.id())
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
 fn data_survives_a_new_connection_pool() {
     let fixture = Fixture::new();
     let owner = project("durable", "still here");

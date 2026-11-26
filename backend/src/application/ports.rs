@@ -41,11 +41,14 @@ impl ReadWindow {
 pub trait ProjectRepository: Send + Sync {
     fn save(&self, project: &Project) -> Result<(), AppError>;
     fn find(&self, id: ProjectId) -> Result<Option<Project>, AppError>;
+    /// Removes the project and its log repositories.
+    fn delete(&self, id: ProjectId) -> Result<(), AppError>;
 }
 
 pub trait LogRepositoryRepository: Send + Sync {
     fn save(&self, repository: &LogRepository) -> Result<(), AppError>;
     fn find(&self, id: LogRepositoryId) -> Result<Option<LogRepository>, AppError>;
+    fn delete(&self, id: LogRepositoryId) -> Result<(), AppError>;
 }
 
 // ---- Read side --------------------------------------------------------------

@@ -350,3 +350,189 @@ async fn index_page_says_hello_so_the_backend_can_be_checked_in_a_browser() {
     let body = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(body.contains("hello"), "body: {body}");
 }
+
+async fn create_log_repository_with(app: &axum::Router, project: &str, body: Value) -> String {
+    let (status, created) = send(
+        app,
+        "POST",
+        &format!("/api/projects/{project}/log-repositories"),
+        Some(body),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    created["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn updates_a_project() {
+    let app = app();
+    let id = create_project(&app, "Payments").await;
+    let (status, body) = send(
+        &app,
+        "PUT",
+        &format!("/api/projects/{id}"),
+        Some(json!({"name": "Billing", "description": "invoices"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["id"], id);
+    assert_eq!(body["name"], "Billing");
+
+    let (_, one) = send(&app, "GET", &format!("/api/projects/{id}"), None).await;
+    assert_eq!(one["name"], "Billing");
+    assert_eq!(one["description"], "invoices");
+}
+
+#[tokio::test]
+async fn update_project_rejects_blank_name_and_unknown_id() {
+    let app = app();
+    let id = create_project(&app, "Payments").await;
+    let (status, _) = send(
+        &app,
+        "PUT",
+        &format!("/api/projects/{id}"),
+        Some(json!({"name": " "})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = send(
+        &app,
+        "PUT",
+        "/api/projects/00000000-0000-0000-0000-000000000000",
+        Some(json!({"name": "Billing"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn deleting_a_project_removes_its_sub_projects() {
+    let app = app();
+    let project = create_project(&app, "Payments").await;
+    let dir = log_dir();
+    let repo = create_repo(&app, &project, dir.path()).await;
+
+    let (status, _) = send(&app, "DELETE", &format!("/api/projects/{project}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (status, _) = send(&app, "GET", &format!("/api/projects/{project}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = send(
+        &app,
+        "GET",
+        &format!("/api/projects/{project}/log-repositories"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = send(
+        &app,
+        "DELETE",
+        &format!("/api/log-repositories/{repo}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = send(&app, "DELETE", &format!("/api/projects/{project}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn updates_a_sub_project_and_its_directories() {
+    let app = app();
+    let project = create_project(&app, "Payments").await;
+    let dir = log_dir();
+    let repo = create_repo(&app, &project, dir.path()).await;
+    let root = dir.path().to_str().unwrap();
+
+    let (status, body) = send(
+        &app,
+        "PUT",
+        &format!("/api/log-repositories/{repo}"),
+        Some(json!({"name": "api-v2", "directories": [root, root]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let (status, body) = send(
+        &app,
+        "PUT",
+        &format!("/api/log-repositories/{repo}"),
+        Some(json!({"name": "api-v2", "directories": [root]})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["project_id"], project);
+    assert_eq!(body["name"], "api-v2");
+
+    let (_, list) = send(
+        &app,
+        "GET",
+        &format!("/api/projects/{project}/log-repositories"),
+        None,
+    )
+    .await;
+    assert_eq!(list[0]["name"], "api-v2");
+}
+
+#[tokio::test]
+async fn deletes_a_sub_project_and_keeps_its_siblings() {
+    let app = app();
+    let project = create_project(&app, "Payments").await;
+    let dir = log_dir();
+    let root = dir.path().to_str().unwrap();
+    let gone = create_log_repository_with(
+        &app,
+        &project,
+        json!({"name": "api", "directories": [root]}),
+    )
+    .await;
+    let kept = create_log_repository_with(
+        &app,
+        &project,
+        json!({"name": "worker", "directories": [root]}),
+    )
+    .await;
+
+    let (status, _) = send(
+        &app,
+        "DELETE",
+        &format!("/api/log-repositories/{gone}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let (_, list) = send(
+        &app,
+        "GET",
+        &format!("/api/projects/{project}/log-repositories"),
+        None,
+    )
+    .await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    assert_eq!(list[0]["id"], kept);
+}
+
+#[tokio::test]
+async fn preflight_allows_put_and_delete_from_the_frontend() {
+    let app = app();
+    for method in ["PUT", "DELETE"] {
+        let request = Request::builder()
+            .method("OPTIONS")
+            .uri("/api/projects/00000000-0000-0000-0000-000000000000")
+            .header("origin", "http://localhost:3000")
+            .header("access-control-request-method", method)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert!(response.status().is_success(), "{method}");
+        let allowed = response.headers()["access-control-allow-methods"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(allowed.contains(method), "{allowed}");
+    }
+}

@@ -129,6 +129,16 @@ impl ProjectRepository for PgStore {
         )?;
         row.as_ref().map(project_from_row).transpose()
     }
+
+    fn delete(&self, id: ProjectId) -> Result<(), AppError> {
+        // log_repositories and their directories are removed by ON DELETE CASCADE.
+        self.run(
+            sqlx::query("DELETE FROM projects WHERE id = $1")
+                .bind(id.as_uuid())
+                .execute(&self.pool),
+        )
+        .map(|_| ())
+    }
 }
 
 impl LogRepositoryRepository for PgStore {
@@ -175,6 +185,15 @@ impl LogRepositoryRepository for PgStore {
             &directory_refs,
         )?;
         Ok(Some(repository))
+    }
+
+    fn delete(&self, id: LogRepositoryId) -> Result<(), AppError> {
+        self.run(
+            sqlx::query("DELETE FROM log_repositories WHERE id = $1")
+                .bind(id.as_uuid())
+                .execute(&self.pool),
+        )
+        .map(|_| ())
     }
 }
 

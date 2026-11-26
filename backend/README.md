@@ -85,10 +85,14 @@ All bodies are JSON. Errors look like `{"error": {"code": "...", "message": "...
 | Method | Path | Purpose | Success |
 |---|---|---|---|
 | GET | `/api/projects` | List projects (sorted by name) | 200 |
-| POST | `/api/projects` | Create `{ "name", "description"? }` | 201 `{ "id" }` |
+| POST | `/api/projects` | Create `{ "name", "description"? }`; names need not be unique | 201 `{ "id" }` |
 | GET | `/api/projects/{id}` | Get one project | 200 |
+| PUT | `/api/projects/{id}` | Replace `{ "name", "description"? }` | 200 project |
+| DELETE | `/api/projects/{id}` | Delete the project and its log repositories | 204 |
 | GET | `/api/projects/{id}/log-repositories` | List log repositories of a project | 200 |
 | POST | `/api/projects/{id}/log-repositories` | Create `{ "name", "directories": [abs paths] }`; every directory must exist | 201 `{ "id" }` |
+| PUT | `/api/log-repositories/{id}` | Replace `{ "name", "directories" }` (same rules as create; the project stays the same) | 200 log repository |
+| DELETE | `/api/log-repositories/{id}` | Delete one log repository | 204 |
 | GET | `/api/log-repositories/{id}/entries?directory=&path=` | List children of `path` inside one registered directory (`path` optional) | 200 |
 | GET | `/api/log-repositories/{id}/file?directory=&path=&offset=&max_lines=&max_bytes=` | Read one page of a log file | 200 |
 | GET | `/api/auth/login?return_to=` | Start login: redirects (302) to the identity provider | 302 |
