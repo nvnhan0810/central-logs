@@ -80,13 +80,13 @@ function onSubmit(): void {
 .form textarea {
   padding: 0.4rem 0.5rem;
   font: inherit;
-  border: 1px solid #c3ccd6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .error {
   margin: 0;
-  color: #b42318;
+  color: var(--danger);
 }
 </style>

@@ -67,11 +67,11 @@ const emit = defineEmits<{
 }
 
 .row:hover {
-  background: #e4e9f0;
+  background: var(--raised);
 }
 
 .row.selected {
-  background: #d6e4ff;
+  background: var(--green-dark);
 }
 
 .icon {
@@ -87,7 +87,7 @@ const emit = defineEmits<{
 }
 
 .muted {
-  color: #6b7785;
+  color: var(--muted);
 }
 
 .small {
@@ -95,6 +95,6 @@ const emit = defineEmits<{
 }
 
 .error {
-  color: #b42318;
+  color: var(--danger);
 }
 </style>

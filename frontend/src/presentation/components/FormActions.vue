@@ -18,7 +18,7 @@ const emit = defineEmits<{ cancel: [] }>();
 }
 
 .secondary {
-  background: #fff;
-  color: #1f2933;
+  background: var(--surface);
+  color: var(--text);
 }
 </style>

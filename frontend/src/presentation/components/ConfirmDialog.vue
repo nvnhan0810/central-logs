@@ -45,16 +45,17 @@ const emit = defineEmits<{ close: []; confirm: [] }>();
 }
 
 .secondary {
-  background: #fff;
-  color: #1f2933;
+  background: var(--surface);
+  color: var(--text);
 }
 
 .danger {
-  background: #b42318;
-  border-color: #b42318;
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-text);
 }
 
 .error {
-  color: #b42318;
+  color: var(--danger);
 }
 </style>
