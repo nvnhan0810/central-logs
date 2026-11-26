@@ -51,6 +51,20 @@ After sign-in the home page (`/`) is the logs screen (`src/presentation/pages/Lo
 The backend has no push channel, so this is polling. Opening a file reads it to the end page by page and
 keeps every line in memory; very large files are slow to open until the backend offers a tail endpoint.
 
+## Projects page
+
+`/projects` (linked from the logs screen) lists every project with its sub-projects and the directories
+of each one. Each sub-project is a set of folders that hold log files; each folder can contain many files.
+
+- **Thêm dự án** opens a popup for a new project (name, optional description).
+- **Thêm sub-project** on a project opens a popup for a new sub-project (name, and one absolute directory
+  per line). The backend checks that every directory exists.
+- Names are trimmed and at most 100 characters. Duplicate project names are rejected by the backend, and
+  the backend's message is shown in the popup. A failed save keeps the popup open with the input.
+
+Only create and read are available: the backend has no update or delete endpoints for projects or
+sub-projects yet.
+
 ## Run
 
 Start the backend first (see `../backend/README.md`), then:

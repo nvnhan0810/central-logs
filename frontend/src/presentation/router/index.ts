@@ -5,6 +5,7 @@ import { toSafeReturnTo } from '@/domain/auth/return-to';
 
 import LogsPage from '../pages/LogsPage.vue';
 import LoginPage from '../pages/LoginPage.vue';
+import ProjectsPage from '../pages/ProjectsPage.vue';
 
 import { decideAccess } from './access';
 import './route-meta';
@@ -24,6 +25,12 @@ export function createAppRouter(auth: AuthService): Router {
         path: '/',
         name: ROUTE_NAME.home,
         component: LogsPage,
+        meta: { guestOnly: false, requiresAuth: true },
+      },
+      {
+        path: '/projects',
+        name: ROUTE_NAME.projects,
+        component: ProjectsPage,
         meta: { guestOnly: false, requiresAuth: true },
       },
       { path: '/:pathMatch(.*)*', redirect: { name: ROUTE_NAME.home } },
