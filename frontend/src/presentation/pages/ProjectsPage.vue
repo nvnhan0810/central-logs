@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 
-import type { NewLogRepository, NewProject, Project } from '@/application/logs/log-gateway';
+import type {
+  LogRepository,
+  NewLogRepository,
+  NewProject,
+  Project,
+} from '@/application/logs/log-gateway';
+import ConfirmDialog from '@/presentation/components/ConfirmDialog.vue';
 import ProjectFormDialog from '@/presentation/components/ProjectFormDialog.vue';
 import RepositoryFormDialog from '@/presentation/components/RepositoryFormDialog.vue';
 import { errorMessage } from '@/presentation/logs/error-message';
@@ -13,26 +19,59 @@ import { ROUTE_NAME } from '@/presentation/router/route-names';
 const catalog = useProjectCatalog(useLogGateway());
 const { items, loading, loadError } = catalog;
 
+/** Project popup: open with `editingProject` `null` to add, or set to the project being edited. */
 const projectDialogOpen = ref(false);
-/** The project that a new sub-project is added to; `null` when that popup is closed. */
-const repositoryTarget = ref<Project | null>(null);
+const editingProject = ref<Project | null>(null);
+/** Sub-project popup: `project` is the parent; `repository` is `null` when adding. */
+const repositoryDialog = ref<{ project: Project; repository: LogRepository | null } | null>(null);
+/** What the delete popup will remove. */
+type DeleteTarget =
+  | { kind: 'project'; project: Project; subProjectCount: number }
+  | { kind: 'repository'; repository: LogRepository };
+
+/** Delete confirmation; `null` when that popup is closed. */
+const pendingDelete = ref<DeleteTarget | null>(null);
+
 const saving = ref(false);
 const saveError = ref<string | null>(null);
 
+const deleteTitle = computed(() =>
+  pendingDelete.value?.kind === 'project' ? 'Xóa dự án' : 'Xóa sub-project',
+);
+const deleteMessage = computed(() => {
+  const target = pendingDelete.value;
+  if (target === null) {
+    return '';
+  }
+  if (target.kind === 'project') {
+    const count = target.subProjectCount;
+    const extra = count === 0 ? '' : ` Cùng với ${String(count)} sub-project của dự án này.`;
+    return `Xóa dự án "${target.project.name}"?${extra} Thao tác này không hoàn tác được.`;
+  }
+  return `Xóa sub-project "${target.repository.name}"? Thao tác này không hoàn tác được.`;
+});
+
 function closeDialogs(): void {
   projectDialogOpen.value = false;
-  repositoryTarget.value = null;
+  repositoryDialog.value = null;
+  pendingDelete.value = null;
   saveError.value = null;
 }
 
-function openProjectDialog(): void {
+function openProjectDialog(project: Project | null = null): void {
   saveError.value = null;
+  editingProject.value = project;
   projectDialogOpen.value = true;
 }
 
-function openRepositoryDialog(project: Project): void {
+function openRepositoryDialog(project: Project, repository: LogRepository | null = null): void {
   saveError.value = null;
-  repositoryTarget.value = project;
+  repositoryDialog.value = { project, repository };
+}
+
+function openDelete(target: DeleteTarget): void {
+  saveError.value = null;
+  pendingDelete.value = target;
 }
 
 /** Runs one save. Returns `true` on success; on failure the message is shown in the open popup. */
@@ -50,18 +89,42 @@ async function save(action: () => Promise<void>): Promise<boolean> {
   }
 }
 
-async function onAddProject(input: NewProject): Promise<void> {
-  if (await save(() => catalog.addProject(input))) {
+async function onSubmitProject(input: NewProject): Promise<void> {
+  const project = editingProject.value;
+  const done = await save(() =>
+    project === null ? catalog.addProject(input) : catalog.updateProject(project.id, input),
+  );
+  if (done) {
     closeDialogs();
   }
 }
 
-async function onAddRepository(input: NewLogRepository): Promise<void> {
-  const target = repositoryTarget.value;
+async function onSubmitRepository(input: NewLogRepository): Promise<void> {
+  const target = repositoryDialog.value;
   if (target === null) {
     return;
   }
-  if (await save(() => catalog.addRepository(target.id, input))) {
+  const done = await save(() =>
+    target.repository === null
+      ? catalog.addRepository(target.project.id, input)
+      : catalog.updateRepository(target.repository.id, input),
+  );
+  if (done) {
+    closeDialogs();
+  }
+}
+
+async function onConfirmDelete(): Promise<void> {
+  const target = pendingDelete.value;
+  if (target === null) {
+    return;
+  }
+  const done = await save(() =>
+    target.kind === 'project'
+      ? catalog.deleteProject(target.project.id)
+      : catalog.deleteRepository(target.repository.id),
+  );
+  if (done) {
     closeDialogs();
   }
 }
@@ -78,7 +141,7 @@ onMounted(() => {
         <RouterLink class="back" :to="{ name: ROUTE_NAME.home }">← Nhật ký log</RouterLink>
         <h1>Dự án và sub-project</h1>
       </div>
-      <button type="button" @click="openProjectDialog">Thêm dự án</button>
+      <button type="button" @click="openProjectDialog()">Thêm dự án</button>
     </header>
 
     <p v-if="loadError !== null" class="error" role="alert">{{ loadError }}</p>
@@ -91,15 +154,51 @@ onMounted(() => {
           <h2>{{ item.project.name }}</h2>
           <p v-if="item.project.description" class="muted">{{ item.project.description }}</p>
         </div>
-        <button type="button" class="secondary" @click="openRepositoryDialog(item.project)">
-          Thêm sub-project
-        </button>
+        <div class="row-actions">
+          <button type="button" class="secondary" @click="openRepositoryDialog(item.project)">
+            Thêm sub-project
+          </button>
+          <button type="button" class="secondary" @click="openProjectDialog(item.project)">
+            Sửa
+          </button>
+          <button
+            type="button"
+            class="danger-outline"
+            @click="
+              openDelete({
+                kind: 'project',
+                project: item.project,
+                subProjectCount: item.repositories.length,
+              })
+            "
+          >
+            Xóa
+          </button>
+        </div>
       </header>
 
       <p v-if="item.repositories.length === 0" class="muted">Chưa có sub-project nào.</p>
       <ul v-else class="repositories">
         <li v-for="repo in item.repositories" :key="repo.id">
-          <strong>{{ repo.name }}</strong>
+          <div class="repo-head">
+            <strong>{{ repo.name }}</strong>
+            <div class="row-actions">
+              <button
+                type="button"
+                class="secondary small"
+                @click="openRepositoryDialog(item.project, repo)"
+              >
+                Sửa
+              </button>
+              <button
+                type="button"
+                class="danger-outline small"
+                @click="openDelete({ kind: 'repository', repository: repo })"
+              >
+                Xóa
+              </button>
+            </div>
+          </div>
           <ul class="directories">
             <li v-for="dir in repo.directories" :key="dir">
               <code>{{ dir }}</code>
@@ -111,18 +210,29 @@ onMounted(() => {
 
     <ProjectFormDialog
       :open="projectDialogOpen"
+      :initial="editingProject"
       :busy="saving"
       :error="saveError"
       @close="closeDialogs"
-      @submit="onAddProject"
+      @submit="onSubmitProject"
     />
     <RepositoryFormDialog
-      :open="repositoryTarget !== null"
-      :project-name="repositoryTarget?.name ?? ''"
+      :open="repositoryDialog !== null"
+      :project-name="repositoryDialog?.project.name ?? ''"
+      :initial="repositoryDialog?.repository ?? null"
       :busy="saving"
       :error="saveError"
       @close="closeDialogs"
-      @submit="onAddRepository"
+      @submit="onSubmitRepository"
+    />
+    <ConfirmDialog
+      :open="pendingDelete !== null"
+      :title="deleteTitle"
+      :message="deleteMessage"
+      :busy="saving"
+      :error="saveError"
+      @close="closeDialogs"
+      @confirm="onConfirmDelete"
     />
   </main>
 </template>
@@ -172,6 +282,19 @@ onMounted(() => {
   margin: 0.25rem 0 0;
 }
 
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.repo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
 .repositories,
 .directories {
   margin: 0;
@@ -194,6 +317,17 @@ onMounted(() => {
 .secondary {
   background: #fff;
   color: #1f2933;
+}
+
+.small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.danger-outline {
+  background: #fff;
+  color: #b42318;
+  border-color: #b42318;
 }
 
 .muted {

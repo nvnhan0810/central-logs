@@ -59,11 +59,14 @@ of each one. Each sub-project is a set of folders that hold log files; each fold
 - **Thêm dự án** opens a popup for a new project (name, optional description).
 - **Thêm sub-project** on a project opens a popup for a new sub-project (name, and one absolute directory
   per line). The backend checks that every directory exists.
+- **Sửa** on a project or sub-project opens the same popup, filled with the current values. Saving
+  replaces the values; a sub-project stays under its project.
+- **Xóa** on a project opens a confirmation that also removes all of its sub-projects. **Xóa** on a
+  sub-project removes only that sub-project. Nothing is deleted until the confirmation is accepted.
 - Names are trimmed and at most 100 characters. Names do not have to be unique. A failed save (for example
   a directory that does not exist) keeps the popup open with the input, and the backend's message is shown.
 
-The page only creates and reads. The backend has `PUT` and `DELETE` endpoints for projects and
-sub-projects, but the page has no edit or delete buttons yet.
+After every save or delete the page reloads the whole list from the backend.
 
 ## Run
 

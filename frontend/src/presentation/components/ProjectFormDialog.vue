@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
-import type { NewProject } from '@/application/logs/log-gateway';
+import type { NewProject, Project } from '@/application/logs/log-gateway';
 import { nameError } from '@/presentation/projects/form-rules';
 
 import FormActions from './FormActions.vue';
@@ -9,6 +9,8 @@ import ModalDialog from './ModalDialog.vue';
 
 const props = defineProps<{
   open: boolean;
+  /** The project being edited, or `null` when a new project is added. */
+  initial: Project | null;
   /** A save is in progress. */
   busy: boolean;
   /** Message from the last failed save, if any. */
@@ -19,14 +21,15 @@ const emit = defineEmits<{ close: []; submit: [input: NewProject] }>();
 const name = ref('');
 const description = ref('');
 const problem = ref<string | null>(null);
+const title = computed(() => (props.initial === null ? 'Thêm dự án' : 'Sửa dự án'));
 
-// Each time the popup opens it starts empty.
+// Each time the popup opens it starts from the project being edited, or empty when adding.
 watch(
   () => props.open,
   (open) => {
     if (open) {
-      name.value = '';
-      description.value = '';
+      name.value = props.initial?.name ?? '';
+      description.value = props.initial?.description ?? '';
       problem.value = null;
     }
   },
@@ -42,7 +45,7 @@ function onSubmit(): void {
 </script>
 
 <template>
-  <ModalDialog :open="open" title="Thêm dự án" @close="emit('close')">
+  <ModalDialog :open="open" :title="title" @close="emit('close')">
     <form class="form" @submit.prevent="onSubmit">
       <label>
         Tên dự án

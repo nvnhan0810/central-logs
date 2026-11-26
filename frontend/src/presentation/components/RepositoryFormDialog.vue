@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
-import type { NewLogRepository } from '@/application/logs/log-gateway';
+import type { LogRepository, NewLogRepository } from '@/application/logs/log-gateway';
 import { directoriesError, nameError, parseDirectories } from '@/presentation/projects/form-rules';
 
 import FormActions from './FormActions.vue';
@@ -9,8 +9,10 @@ import ModalDialog from './ModalDialog.vue';
 
 const props = defineProps<{
   open: boolean;
-  /** Name of the project the sub-project is added to. */
+  /** Name of the project the sub-project belongs to. */
   projectName: string;
+  /** The sub-project being edited, or `null` when a new one is added. */
+  initial: LogRepository | null;
   busy: boolean;
   error: string | null;
 }>();
@@ -19,13 +21,17 @@ const emit = defineEmits<{ close: []; submit: [input: NewLogRepository] }>();
 const name = ref('');
 const directories = ref('');
 const problem = ref<string | null>(null);
+const title = computed(() =>
+  props.initial === null ? `Thêm sub-project vào ${props.projectName}` : 'Sửa sub-project',
+);
 
+// Each time the popup opens it starts from the sub-project being edited, or empty when adding.
 watch(
   () => props.open,
   (open) => {
     if (open) {
-      name.value = '';
-      directories.value = '';
+      name.value = props.initial?.name ?? '';
+      directories.value = props.initial?.directories.join('\n') ?? '';
       problem.value = null;
     }
   },
@@ -42,7 +48,7 @@ function onSubmit(): void {
 </script>
 
 <template>
-  <ModalDialog :open="open" :title="`Thêm sub-project vào ${projectName}`" @close="emit('close')">
+  <ModalDialog :open="open" :title="title" @close="emit('close')">
     <form class="form" @submit.prevent="onSubmit">
       <label>
         Tên sub-project
