@@ -31,7 +31,7 @@ make build
 make migrate
 
 log "Backend: restarting central-logs"
-sudo supervisorctl restart central-logs
+sudo -n -u nvnhan0810 supervisorctl restart central-logs
 
 log "Frontend: install and build"
 cd "$REPO_ROOT/frontend"
