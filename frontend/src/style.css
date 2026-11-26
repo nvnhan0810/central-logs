@@ -1,4 +1,25 @@
+/*
+ * Theme tokens follow the dark palette of identity.nvnhan0810.com:
+ * deep navy surfaces with a mint-green accent.
+ */
 :root {
+  --bg: #0b111b;
+  --surface: #111925;
+  --raised: #162130;
+  --border: #233040;
+  --border-strong: #2b3a4e;
+  --text: #e4eaf1;
+  --muted: #8a99ad;
+  --green: #68dfb3;
+  --green-dark: #183b33;
+  --green-text: #0d2e23;
+  --danger: #f08e99;
+  --danger-bg: #68323e;
+  --danger-border: #9a4d5d;
+  --danger-text: #ffe2e7;
+  --backdrop: rgba(2, 6, 12, 0.6);
+  --shadow: rgba(0, 0, 0, 0.45);
+
   font-family:
     system-ui,
     -apple-system,
@@ -6,8 +27,9 @@
     Roboto,
     sans-serif;
   line-height: 1.5;
-  color: #1f2933;
-  background: #f5f7fa;
+  color-scheme: dark;
+  color: var(--text);
+  background: var(--bg);
 }
 
 body {
@@ -17,14 +39,14 @@ body {
 button {
   padding: 0.5rem 1rem;
   font: inherit;
-  border: 1px solid #1f2933;
+  border: 1px solid var(--green);
   border-radius: 6px;
-  background: #1f2933;
-  color: #fff;
+  background: var(--green);
+  color: var(--green-text);
   cursor: pointer;
 }
 
 button:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--green);
   outline-offset: 2px;
 }
