@@ -70,8 +70,8 @@ describe('HttpLogGateway writes', () => {
   it('surfaces the backend message when the create is rejected', async () => {
     const sent: Sent[] = [];
     const gateway = gatewayReplying(
-      409,
-      { error: { code: 'conflict', message: 'project name already exists: Payments' } },
+      400,
+      { error: { code: 'invalid_request', message: 'directory does not exist: /var/log/missing' } },
       sent,
     );
 
@@ -80,8 +80,8 @@ describe('HttpLogGateway writes', () => {
       .catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({
-      status: 409,
-      message: 'project name already exists: Payments',
+      status: 400,
+      message: 'directory does not exist: /var/log/missing',
     });
   });
 });

@@ -59,11 +59,11 @@ of each one. Each sub-project is a set of folders that hold log files; each fold
 - **Thêm dự án** opens a popup for a new project (name, optional description).
 - **Thêm sub-project** on a project opens a popup for a new sub-project (name, and one absolute directory
   per line). The backend checks that every directory exists.
-- Names are trimmed and at most 100 characters. Duplicate project names are rejected by the backend, and
-  the backend's message is shown in the popup. A failed save keeps the popup open with the input.
+- Names are trimmed and at most 100 characters. Names do not have to be unique. A failed save (for example
+  a directory that does not exist) keeps the popup open with the input, and the backend's message is shown.
 
-Only create and read are available: the backend has no update or delete endpoints for projects or
-sub-projects yet.
+The page only creates and reads. The backend has `PUT` and `DELETE` endpoints for projects and
+sub-projects, but the page has no edit or delete buttons yet.
 
 ## Run
 
