@@ -101,6 +101,8 @@ fn session_from_row(row: &PgRow) -> Result<Session, AppError> {
             name: row.try_get("name").map_err(storage)?,
         },
         expires_at: from_millis(row.try_get("expires_at_ms").map_err(storage)?)?,
+        access_expires_at: from_millis(row.try_get("access_expires_at_ms").map_err(storage)?)?,
+        refresh_credentials: row.try_get("refresh_credentials").map_err(storage)?,
     })
 }
 
@@ -324,6 +326,7 @@ impl PendingLoginStore for PgStore {
 impl SessionStore for PgStore {
     fn save(&self, session_id: &str, session: Session) -> Result<(), AppError> {
         let expires_at_ms = to_millis(session.expires_at)?;
+        let access_expires_at_ms = to_millis(session.access_expires_at)?;
         let now_ms = to_millis(SystemTime::now())?;
         self.run(async {
             sqlx::query("DELETE FROM auth_sessions WHERE expires_at_ms <= $1")
@@ -331,19 +334,24 @@ impl SessionStore for PgStore {
                 .execute(&self.pool)
                 .await?;
             sqlx::query(
-                "INSERT INTO auth_sessions (id, subject, email, name, expires_at_ms)
-                 VALUES ($1, $2, $3, $4, $5)
+                "INSERT INTO auth_sessions
+                     (id, subject, email, name, expires_at_ms, access_expires_at_ms, refresh_credentials)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
                  ON CONFLICT (id) DO UPDATE SET
                      subject = EXCLUDED.subject,
                      email = EXCLUDED.email,
                      name = EXCLUDED.name,
-                     expires_at_ms = EXCLUDED.expires_at_ms",
+                     expires_at_ms = EXCLUDED.expires_at_ms,
+                     access_expires_at_ms = EXCLUDED.access_expires_at_ms,
+                     refresh_credentials = EXCLUDED.refresh_credentials",
             )
             .bind(session_id)
             .bind(session.identity.subject.as_str())
             .bind(session.identity.email.as_deref())
             .bind(session.identity.name.as_deref())
             .bind(expires_at_ms)
+            .bind(access_expires_at_ms)
+            .bind(session.refresh_credentials.as_deref())
             .execute(&self.pool)
             .await?;
             Ok::<(), sqlx::Error>(())
@@ -353,7 +361,8 @@ impl SessionStore for PgStore {
     fn find(&self, session_id: &str) -> Result<Option<Session>, AppError> {
         let row = self.run(
             sqlx::query(
-                "SELECT subject, email, name, expires_at_ms FROM auth_sessions WHERE id = $1",
+                "SELECT subject, email, name, expires_at_ms, access_expires_at_ms, refresh_credentials
+                 FROM auth_sessions WHERE id = $1",
             )
             .bind(session_id)
             .fetch_optional(&self.pool),

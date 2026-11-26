@@ -11,7 +11,7 @@ Layers, dependencies point inward:
 |---|---|---|
 | Domain | `src/domain` | Aggregates `Project`, `LogRepository`; value objects `Name`, `LogDirectory`, `RelativeLogPath`. No I/O. |
 | Application | `src/application` | CQRS: `CommandService` (writes) and `QueryService` (reads); `AuthService` (login); ports `ProjectRepository`, `LogRepositoryRepository`, read models, `LogFileSystem`, `IdentityProvider`, `PendingLoginStore`, `SessionStore`. |
-| Infrastructure | `src/infrastructure` | `PgStore` (projects, log repositories, login sessions and pending logins; PostgreSQL), `InMemoryStore` (tests only), `FsLogFileSystem` (log files), `OidcIdentityProvider` (identity provider). |
+| Infrastructure | `src/infrastructure` | `PgStore` (projects, log repositories, login sessions and pending logins; PostgreSQL), `InMemoryStore` (tests only), `FsLogFileSystem` (log files), `OAuth2IdentityProvider` (identity provider). |
 | Interfaces | `src/interfaces/http` | axum routes, DTOs, error mapping. |
 
 Domain invariants are enforced by factories, so invalid objects cannot be built:
@@ -44,20 +44,21 @@ Database settings (all required; the server exits at startup if one is missing o
 database when it does not exist (the role needs `CREATEDB` for that), then applies pending migrations
 from `migrations/`. Running it again is a no-op. The server never migrates on its own.
 
-Login needs these variables; the server exits at startup if a required one is missing:
+Login needs these variables; the server exits at startup if a required one is missing or malformed:
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `CENTRAL_LOGS_OIDC_CLIENT_ID` | yes | | Client registered with the identity provider |
-| `CENTRAL_LOGS_OIDC_REDIRECT_URI` | yes | | Backend callback URL, e.g. `https://logs.example.com/api/auth/callback`; must be registered with the provider |
-| `CENTRAL_LOGS_OIDC_CLIENT_SECRET` | no | | Only for confidential clients; PKCE is always used |
-| `CENTRAL_LOGS_OIDC_ISSUER` | no | `https://identity.nvnhan0810.com` | Issuer; discovery is read from `{issuer}/.well-known/openid-configuration` |
+| `CENTRAL_LOGS_IDENTITY_URL` | no | `https://backend.nvnhan0810.com` | Identity service base URL. The backend uses `/auth/sso/authorize`, `/auth/sso/token` and `/auth/me` under it, with scope `profile` |
+| `CENTRAL_LOGS_IDENTITY_CLIENT_ID` | no | `central-logs` | Client registered with the identity service |
+| `CENTRAL_LOGS_BACKEND_URL` | yes | | Public origin of this backend, e.g. `https://logs-api.example.com` (`scheme://host[:port]`, no path). The redirect URI sent to the identity service is this origin + `/api/auth/callback`, so that full URL must be registered with the identity service |
+| `CENTRAL_LOGS_SESSION_KEY` | yes | | Base64 of 32 random bytes; encrypts refresh tokens in the database. Generate with `openssl rand -base64 32`. Sessions sealed under a different key end at their next token refresh. |
 | `CENTRAL_LOGS_FRONTEND_URL` | no | `http://localhost:3000` | The frontend origin, e.g. `https://logs.example.com`. The browser is sent here after login, and it is the only origin allowed to call the API cross-origin (CORS with credentials). `scheme://host[:port]`, no path; the server refuses to start if it is malformed. |
 | `CENTRAL_LOGS_COOKIE_SECURE` | no | `true` | Set `false` only for plain-HTTP local development |
 
 All state is stored in PostgreSQL: projects, log repositories, login sessions and pending logins.
-A restart does not sign users out. Migration `0002` adds the session tables, so run `make migrate`
-before starting a server that includes this change; the server does not migrate on its own.
+A restart does not sign users out. Migrations `0002` (session tables) and `0003` (refresh credentials)
+must be applied before starting a server that includes this change, so run `make migrate`; the server
+does not migrate on its own. Sessions that existed before `0003` are signed out once, on their next request.
 
 ## Test
 
@@ -97,19 +98,26 @@ All bodies are JSON. Errors look like `{"error": {"code": "...", "message": "...
 
 ### Login (frontend integration)
 
-Login is an OpenID Connect authorization code flow with PKCE, run by the backend:
+Login is an OAuth 2.0 authorization code flow with PKCE, run by the backend:
 
-1. The frontend navigates the browser to `/api/auth/login?return_to=/some/page` (a same-site relative path only; anything else is 400).
-2. The backend redirects to the identity provider. The user signs in there.
-3. The provider redirects to `/api/auth/callback`. The backend exchanges the code, reads the user's claims from `userinfo`, creates a session, sets cookie `central_logs_session` (`HttpOnly`, `SameSite=Lax`, 8 hours) and redirects to `CENTRAL_LOGS_FRONTEND_URL` + `return_to`.
-4. The frontend calls `GET /api/auth/me` directly with `fetch(url, { credentials: "include" })` to know who is signed in. A 401 means sign in again. The backend answers CORS for the origin in `CENTRAL_LOGS_FRONTEND_URL`, with `Access-Control-Allow-Credentials: true`; other origins get no grant.
-5. `POST /api/auth/logout` ends the session.
+1. The frontend navigates the browser to `/api/auth/login?return_to=/some/page` (a same-site relative path only; anything else is 400). The backend sets cookie `central_logs_oauth` (the login `state`, 10 minutes) and redirects to the identity provider.
+2. The user signs in at the provider.
+3. The provider redirects to `/api/auth/callback?code=&state=`. The backend accepts it only if the browser still holds the `central_logs_oauth` cookie with the same `state`. It exchanges the code, reads the claims from `userinfo`, stores the refresh token encrypted with `CENTRAL_LOGS_SESSION_KEY`, creates a session, and sets cookie `central_logs_session` (`HttpOnly`, `SameSite=Lax`, 8 hours). It then redirects to `CENTRAL_LOGS_FRONTEND_URL` + `return_to`.
+4. The frontend calls `GET /api/auth/me` with `fetch(url, { credentials: "include" })` to know who is signed in. A 401 means sign in again. The backend answers CORS for the origin in `CENTRAL_LOGS_FRONTEND_URL`, with `Access-Control-Allow-Credentials: true`; other origins get no grant.
+5. When the access token expires, the next request refreshes it with the `refresh_token` grant and stores the rotated refresh token. If the provider rejects the refresh token, the session ends and `/api/auth/me` returns 401. If the provider is unreachable, the request fails with 502 and the session is kept.
+6. `POST /api/auth/logout` ends the session. It works even when the access token has expired.
 
-Errors use the usual shape. `400 invalid_request` covers a bad or reused `state`, an expired login, or a provider-reported error. `502 identity_unavailable` means the provider could not be reached or rejected the exchange; details are not returned to the client.
+Failed logins do not return JSON. Like the agent backend, the callback always redirects to the frontend: `CENTRAL_LOGS_FRONTEND_URL/?auth_error=<reason>`, with no session cookie. Reasons:
+- `invalid_state`: the `state` is unknown, reused or expired, or the browser that started the login is not this one.
+- `access_denied` / `temporarily_unavailable`: the provider reported that error.
+- `login_failed`: the code exchange or userinfo call failed.
+
+`/api/auth/login` answers `400 invalid_request` for a bad `return_to`. `/api/auth/me` answers `502 identity_unavailable` when the provider cannot be reached during a refresh; provider details are not returned to the client.
 
 Notes:
 - The browser sends the session cookie to the API only when the frontend and backend are same-site (for example both on `localhost`, or sub-domains of one domain). `SameSite=Lax` is unchanged, so mixing `localhost` and `127.0.0.1` will not work.
-- Login `state` is single-use and expires after 10 minutes. Sessions expire after 8 hours.
+- Login `state` is single-use and expires after 10 minutes. A session ends 8 hours after login. The access token is trusted for at most 1 hour before a refresh.
+- Refreshes of one session are serialized inside one server process, so a rotated refresh token is not used twice. Running several server processes against the same database is not covered by that lock.
 - The ID token signature is not verified. Claims come from `userinfo`, which is called over TLS with the access token received directly from the provider's token endpoint.
 - Existing `/api/projects` and `/api/log-repositories` routes do not require a session yet.
 
@@ -141,4 +149,5 @@ Response:
 - `directory` must be one of the directories registered to the log repository, otherwise 404.
 - `path` must be relative and cannot contain `..`.
 - Paths are canonicalised; symlinks that resolve outside the registered directory are treated as not found.
-- Session ids, login `state` and PKCE verifiers are about 244 random bits (two v4 UUIDs). Session ids are sent only in an `HttpOnly` cookie. Login redirects accept only same-site relative `return_to` paths.
+- Session ids, login `state` and PKCE verifiers are about 244 random bits (two v4 UUIDs). Session ids and the login `state` are sent only in `HttpOnly` cookies. Login redirects accept only same-site relative `return_to` paths.
+- Refresh tokens are sealed with AES-256-GCM under `CENTRAL_LOGS_SESSION_KEY`, bound to the session id, and never leave the backend.

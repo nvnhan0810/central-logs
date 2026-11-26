@@ -18,7 +18,7 @@ use crate::application::auth::AuthService;
 use crate::application::commands::CommandService;
 use crate::application::ports::{
     IdentityProvider, LogRepositoryReadModel, LogRepositoryRepository, PendingLoginStore,
-    ProjectReadModel, ProjectRepository, SessionStore,
+    ProjectReadModel, ProjectRepository, SecretSealer, SessionStore,
 };
 use crate::application::queries::QueryService;
 use crate::infrastructure::fs::FsLogFileSystem;
@@ -47,8 +47,12 @@ pub struct AppState {
 
 impl AppState {
     /// Wires the in-memory adapters for everything. Used by tests; data is lost on restart.
-    pub fn in_memory(identity: Arc<dyn IdentityProvider>, web: WebSettings) -> Self {
-        Self::assemble(identity, web, Arc::new(InMemoryStore::default()))
+    pub fn in_memory(
+        identity: Arc<dyn IdentityProvider>,
+        web: WebSettings,
+        sealer: Arc<dyn SecretSealer>,
+    ) -> Self {
+        Self::assemble(identity, web, sealer, Arc::new(InMemoryStore::default()))
     }
 
     /// Stores projects, log repositories, login sessions and pending logins in PostgreSQL,
@@ -57,13 +61,19 @@ impl AppState {
     pub fn with_postgres(
         identity: Arc<dyn IdentityProvider>,
         web: WebSettings,
+        sealer: Arc<dyn SecretSealer>,
         pool: PgPool,
         runtime: Handle,
     ) -> Self {
-        Self::assemble(identity, web, Arc::new(PgStore::new(pool, runtime)))
+        Self::assemble(identity, web, sealer, Arc::new(PgStore::new(pool, runtime)))
     }
 
-    fn assemble<S>(identity: Arc<dyn IdentityProvider>, web: WebSettings, store: Arc<S>) -> Self
+    fn assemble<S>(
+        identity: Arc<dyn IdentityProvider>,
+        web: WebSettings,
+        sealer: Arc<dyn SecretSealer>,
+        store: Arc<S>,
+    ) -> Self
     where
         S: ProjectRepository
             + LogRepositoryRepository
@@ -86,7 +96,7 @@ impl AppState {
                 store.clone(),
                 files,
             )),
-            auth: Arc::new(AuthService::new(identity, store.clone(), store)),
+            auth: Arc::new(AuthService::new(identity, store.clone(), store, sealer)),
             web: Arc::new(web),
         }
     }
@@ -118,12 +128,16 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/api/log-repositories/{id}/file", get(handlers::read_file))
         .route("/api/auth/login", get(auth::login))
-        .route("/api/auth/callback", get(auth::callback))
+        .route(CALLBACK_PATH, get(auth::callback))
         .route("/api/auth/me", get(auth::me))
         .route("/api/auth/logout", post(auth::logout))
         .layer(cors)
         .with_state(state)
 }
+
+/// Path of the OAuth callback route. The backend origin from config plus this path is the `redirect_uri`
+/// sent to the identity service, so the route and the registered redirect URI cannot drift apart.
+pub const CALLBACK_PATH: &str = "/api/auth/callback";
 
 /// Lets the configured frontend call the API with cookies (`fetch(..., { credentials: "include" })`).
 /// The origin is never `*`. The browser keeps the session cookie only when the frontend and backend are same-site

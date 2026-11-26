@@ -1,18 +1,21 @@
-//! Login, callback, current user and logout. The browser holds only an opaque session cookie.
+//! Login, callback, current user and logout. The browser holds only opaque cookies: the session id,
+//! and the login `state` while a login is in progress.
 
 use axum::Json;
 use axum::extract::{Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
 use super::error::ApiError;
 use super::handlers::blocking;
-use crate::application::auth::{Identity, SESSION_TTL};
+use crate::application::auth::{CompletedLogin, Identity, LOGIN_TTL, SESSION_TTL};
 use crate::application::error::AppError;
 
 pub const SESSION_COOKIE: &str = "central_logs_session";
+/// Holds the login `state` from `/login` until `/callback`, so only the browser that started a login can finish it.
+pub const OAUTH_COOKIE: &str = "central_logs_oauth";
 
 #[derive(Debug, Deserialize)]
 pub struct LoginParams {
@@ -45,42 +48,60 @@ impl From<Identity> for UserResponse {
     }
 }
 
-/// `GET /api/auth/login`: redirects the browser to the identity provider.
+/// `GET /api/auth/login`: redirects the browser to the identity provider and binds the login to this browser.
 pub async fn login(
     State(state): State<AppState>,
     Query(params): Query<LoginParams>,
 ) -> Result<Response, ApiError> {
     let auth = state.auth.clone();
-    let url = blocking(move || auth.begin_login(params.return_to.as_deref())).await?;
-    Ok((StatusCode::FOUND, [(header::LOCATION, url)]).into_response())
+    let start = blocking(move || auth.begin_login(params.return_to.as_deref())).await?;
+    let cookie = set_cookie(
+        OAUTH_COOKIE,
+        &start.state,
+        LOGIN_TTL.as_secs(),
+        state.web.cookie_secure,
+    );
+    redirect(start.authorization_url, vec![cookie])
 }
 
-/// `GET /api/auth/callback`: completes the login, sets the session cookie and redirects to the frontend.
+/// `GET /api/auth/callback`: completes the login and redirects the browser to the frontend.
+///
+/// Every outcome is a redirect to the frontend, as in the agent backend. A failed login goes to
+/// `/?auth_error=<reason>` and sets no session.
 pub async fn callback(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<CallbackParams>,
 ) -> Result<Response, ApiError> {
-    if params.error.is_some() {
-        return Err(AppError::Validation("login was not completed".into()).into());
-    }
-    let (Some(code), Some(login_state)) = (params.code, params.state) else {
-        return Err(AppError::Validation("missing code or state".into()).into());
-    };
+    let secure = state.web.cookie_secure;
+    let oauth_cookie = cookie_value(&headers, OAUTH_COOKIE);
+    let login_state = params.state.clone().unwrap_or_default();
+    let code = params.code.clone().unwrap_or_default();
+    let provider_error = params.error.clone();
 
     let auth = state.auth.clone();
-    let done = blocking(move || auth.complete_login(&login_state, &code)).await?;
+    let result = run_blocking(move || match provider_error {
+        Some(_) => auth
+            .reject_login(&login_state, oauth_cookie.as_deref())
+            .map(|()| None),
+        None => auth
+            .complete_login(&login_state, oauth_cookie.as_deref(), &code)
+            .map(Some),
+    })
+    .await;
 
-    let location = format!(
-        "{}{}",
-        state.web.frontend_url.trim_end_matches('/'),
-        done.return_to
-    );
-    let cookie = session_cookie(&done.session_id, state.web.cookie_secure);
-    Ok((
-        StatusCode::FOUND,
-        [(header::LOCATION, location), (header::SET_COOKIE, cookie)],
-    )
-        .into_response())
+    let clear_oauth = set_cookie(OAUTH_COOKIE, "", 0, secure);
+    match result {
+        Ok(Some(done)) => signed_in(&state, done, clear_oauth),
+        other => {
+            let reason = failure_reason(&other, params.error.as_deref());
+            let frontend = &state.web.frontend_url;
+            redirect(
+                format!("{frontend}/?auth_error={reason}"),
+                vec![clear_oauth],
+            )
+        }
+    }
 }
 
 /// `GET /api/auth/me`: the signed-in user, or 401.
@@ -88,7 +109,7 @@ pub async fn me(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<UserResponse>, ApiError> {
-    let Some(session_id) = session_id_from(&headers) else {
+    let Some(session_id) = cookie_value(&headers, SESSION_COOKIE) else {
         return Err(ApiError::unauthenticated());
     };
     let auth = state.auth.clone();
@@ -103,49 +124,89 @@ pub async fn logout(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    if let Some(session_id) = session_id_from(&headers) {
+    if let Some(session_id) = cookie_value(&headers, SESSION_COOKIE) {
         let auth = state.auth.clone();
         blocking(move || auth.logout(&session_id)).await?;
     }
-    Ok((
-        StatusCode::NO_CONTENT,
-        [(
-            header::SET_COOKIE,
-            clear_session_cookie(state.web.cookie_secure),
-        )],
-    )
-        .into_response())
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        set_cookie(SESSION_COOKIE, "", 0, state.web.cookie_secure),
+    );
+    Ok(response)
 }
 
-fn session_id_from(headers: &HeaderMap) -> Option<String> {
+fn signed_in(
+    state: &AppState,
+    done: CompletedLogin,
+    clear_oauth: HeaderValue,
+) -> Result<Response, ApiError> {
+    let location = format!(
+        "{}{}",
+        state.web.frontend_url.trim_end_matches('/'),
+        done.return_to
+    );
+    let session = set_cookie(
+        SESSION_COOKIE,
+        &done.session_id,
+        SESSION_TTL.as_secs(),
+        state.web.cookie_secure,
+    );
+    redirect(location, vec![session, clear_oauth])
+}
+
+/// Runs a blocking use case and keeps its error kind, so the callback can tell a state mismatch from a provider failure.
+async fn run_blocking<T, F>(work: F) -> Result<T, AppError>
+where
+    F: FnOnce() -> Result<T, AppError> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .unwrap_or_else(|_| Err(AppError::Storage("background task failed".into())))
+}
+
+/// Label shown to the user for a failed login. Labels match the agent backend.
+fn failure_reason(
+    result: &Result<Option<CompletedLogin>, AppError>,
+    provider_error: Option<&str>,
+) -> &'static str {
+    match (result, provider_error) {
+        (Err(AppError::Validation(_)), _) => "invalid_state",
+        (Ok(None), Some("access_denied")) => "access_denied",
+        (Ok(None), Some("temporarily_unavailable")) => "temporarily_unavailable",
+        _ => "login_failed",
+    }
+}
+
+fn redirect(location: String, cookies: Vec<HeaderValue>) -> Result<Response, ApiError> {
+    let location = HeaderValue::try_from(location).map_err(|_| ApiError::internal())?;
+    let mut response = (StatusCode::FOUND, [(header::LOCATION, location)]).into_response();
+    for cookie in cookies {
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
+    Ok(response)
+}
+
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|value| value.to_str().ok())
         .flat_map(|value| value.split(';'))
         .filter_map(|pair| pair.trim().split_once('='))
-        .find(|(name, _)| *name == SESSION_COOKIE)
+        .find(|(key, _)| *key == name)
         .map(|(_, value)| value.to_owned())
         .filter(|value| !value.is_empty())
 }
 
-fn session_cookie(session_id: &str, secure: bool) -> String {
-    format!(
-        "{SESSION_COOKIE}={session_id}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
-        SESSION_TTL.as_secs(),
-        secure_attr(secure)
-    )
-}
-
-fn clear_session_cookie(secure: bool) -> String {
-    format!(
-        "{SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0{}",
-        secure_attr(secure)
-    )
-}
-
-fn secure_attr(secure: bool) -> &'static str {
-    if secure { "; Secure" } else { "" }
+/// A `Set-Cookie` value. Values are hex tokens or empty, so the header is always valid.
+fn set_cookie(name: &str, value: &str, max_age: u64, secure: bool) -> HeaderValue {
+    let secure = if secure { "; Secure" } else { "" };
+    HeaderValue::try_from(format!(
+        "{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}"
+    ))
+    .expect("cookie made of hex tokens and fixed attributes is a valid header value")
 }
 
 #[cfg(test)]
@@ -159,28 +220,63 @@ mod tests {
     }
 
     #[test]
-    fn finds_session_cookie_among_others() {
-        let h = headers("theme=dark; central_logs_session=abc123; lang=vi");
-        assert_eq!(session_id_from(&h).as_deref(), Some("abc123"));
+    fn finds_cookies_among_others() {
+        let h = headers("theme=dark; central_logs_session=abc123; central_logs_oauth=st; lang=vi");
+        assert_eq!(cookie_value(&h, SESSION_COOKIE).as_deref(), Some("abc123"));
+        assert_eq!(cookie_value(&h, OAUTH_COOKIE).as_deref(), Some("st"));
     }
 
     #[test]
-    fn ignores_missing_or_empty_session_cookie() {
-        assert_eq!(session_id_from(&headers("theme=dark")), None);
-        assert_eq!(session_id_from(&headers("central_logs_session=")), None);
-        assert_eq!(session_id_from(&HeaderMap::new()), None);
+    fn ignores_missing_or_empty_cookies() {
+        assert_eq!(cookie_value(&headers("theme=dark"), SESSION_COOKIE), None);
+        assert_eq!(
+            cookie_value(&headers("central_logs_session="), SESSION_COOKIE),
+            None
+        );
+        assert_eq!(cookie_value(&HeaderMap::new(), SESSION_COOKIE), None);
     }
 
     #[test]
-    fn session_cookie_is_http_only_and_secure_when_configured() {
-        let secure = session_cookie("id", true);
-        assert!(secure.starts_with("central_logs_session=id; Path=/; HttpOnly; SameSite=Lax"));
+    fn cookies_are_http_only_and_secure_when_configured() {
+        let secure = set_cookie("n", "id", 60, true);
+        let secure = secure.to_str().unwrap();
+        assert!(secure.starts_with("n=id; Path=/; HttpOnly; SameSite=Lax; Max-Age=60"));
         assert!(secure.ends_with("; Secure"));
-        assert!(!session_cookie("id", false).contains("Secure"));
+        assert!(
+            !set_cookie("n", "id", 60, false)
+                .to_str()
+                .unwrap()
+                .contains("Secure")
+        );
     }
 
     #[test]
-    fn clear_cookie_expires_immediately() {
-        assert!(clear_session_cookie(false).contains("Max-Age=0"));
+    fn clearing_a_cookie_expires_it_immediately() {
+        assert!(
+            set_cookie(SESSION_COOKIE, "", 0, false)
+                .to_str()
+                .unwrap()
+                .contains("Max-Age=0")
+        );
+    }
+
+    #[test]
+    fn failure_reasons_match_the_agent_labels() {
+        assert_eq!(
+            failure_reason(&Err(AppError::Validation("x".into())), None),
+            "invalid_state"
+        );
+        assert_eq!(
+            failure_reason(&Ok(None), Some("access_denied")),
+            "access_denied"
+        );
+        assert_eq!(
+            failure_reason(&Ok(None), Some("temporarily_unavailable")),
+            "temporarily_unavailable"
+        );
+        assert_eq!(
+            failure_reason(&Err(AppError::Upstream("x".into())), None),
+            "login_failed"
+        );
     }
 }

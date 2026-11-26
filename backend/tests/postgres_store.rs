@@ -13,15 +13,18 @@ use std::time::{Duration, SystemTime};
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use central_logs_backend::application::auth::{AuthService, Identity, PendingLogin, Session};
+use central_logs_backend::application::auth::{
+    AuthService, Identity, IdentityTokens, PendingLogin, Session,
+};
 use central_logs_backend::application::error::AppError;
 use central_logs_backend::application::ports::{
     IdentityProvider, LogRepositoryReadModel, LogRepositoryRepository, PendingLoginStore,
     ProjectReadModel, ProjectRepository, SessionStore,
 };
 use central_logs_backend::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
-use central_logs_backend::infrastructure::oidc::{OidcConfig, OidcIdentityProvider};
+use central_logs_backend::infrastructure::oauth2::{OAuth2Config, OAuth2IdentityProvider};
 use central_logs_backend::infrastructure::postgres::{DbConfig, PgPool, PgStore, connect, migrate};
+use central_logs_backend::infrastructure::session_crypto::AesSecretSealer;
 use central_logs_backend::interfaces::http::{AppState, WebSettings, router};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -174,14 +177,17 @@ fn data_survives_a_new_connection_pool() {
     );
 }
 
-fn identity() -> OidcIdentityProvider {
+fn identity() -> OAuth2IdentityProvider {
     // The identity provider is not contacted by these tests.
-    OidcIdentityProvider::new(OidcConfig {
-        issuer: "http://127.0.0.1:9".into(),
+    OAuth2IdentityProvider::new(OAuth2Config {
+        identity_url: "http://127.0.0.1:9".into(),
         client_id: "central-logs".into(),
-        client_secret: None,
         redirect_uri: "http://127.0.0.1:8080/api/auth/callback".into(),
     })
+}
+
+fn sealer() -> Arc<AesSecretSealer> {
+    Arc::new(AesSecretSealer::new([7; 32]))
 }
 
 fn web() -> WebSettings {
@@ -226,6 +232,7 @@ fn api_writes_are_visible_to_a_restarted_server() {
         let first = router(AppState::with_postgres(
             Arc::new(identity()),
             web(),
+            sealer(),
             pool.clone(),
             handle.clone(),
         ));
@@ -252,6 +259,7 @@ fn api_writes_are_visible_to_a_restarted_server() {
         let second = router(AppState::with_postgres(
             Arc::new(identity()),
             web(),
+            sealer(),
             pool,
             handle,
         ));
@@ -279,6 +287,8 @@ fn session_for(subject: &str) -> Session {
             name: None,
         },
         expires_at: future(8 * 60 * 60),
+        access_expires_at: future(15 * 60),
+        refresh_credentials: Some("sealed-refresh".into()),
     }
 }
 
@@ -343,7 +353,7 @@ fn pending_login_is_taken_once() {
     assert_eq!(PendingLoginStore::take(&store, "state-1").unwrap(), None);
 }
 
-/// Identity provider that is never contacted: any code is accepted as a user named after it.
+/// Identity provider that is never contacted by the refresh path: any code is accepted as a user named after it.
 struct FakeIdp;
 
 impl IdentityProvider for FakeIdp {
@@ -351,18 +361,28 @@ impl IdentityProvider for FakeIdp {
         Ok(format!("https://idp.test/authorize?state={state}"))
     }
 
-    fn exchange_code(&self, code: &str, _code_verifier: &str) -> Result<Identity, AppError> {
-        Ok(Identity {
-            subject: format!("user-{code}"),
-            email: Some("user@example.test".into()),
-            name: None,
+    fn exchange_code(&self, code: &str, _code_verifier: &str) -> Result<IdentityTokens, AppError> {
+        Ok(IdentityTokens {
+            identity: Identity {
+                subject: format!("user-{code}"),
+                email: Some("user@example.test".into()),
+                name: None,
+            },
+            expires_in: Duration::from_secs(900),
+            refresh_token: Some(format!("refresh-{code}")),
         })
+    }
+
+    fn refresh(&self, _refresh_token: &str) -> Result<IdentityTokens, AppError> {
+        Err(AppError::Upstream(
+            "refresh is not used by these tests".into(),
+        ))
     }
 }
 
 fn auth_on(store: PgStore) -> AuthService {
     let store = Arc::new(store);
-    AuthService::new(Arc::new(FakeIdp), store.clone(), store)
+    AuthService::new(Arc::new(FakeIdp), store.clone(), store, sealer())
 }
 
 #[test]
@@ -373,22 +393,17 @@ fn sign_in_started_before_a_restart_completes_and_stays_signed_in() {
     let handle = fixture.runtime.handle().clone();
 
     // Server 1 starts the login, then goes away.
-    let url = auth_on(fixture.store())
+    let start = auth_on(fixture.store())
         .begin_login(Some("/projects/1"))
         .unwrap();
-    let state = url
-        .split("state=")
-        .nth(1)
-        .unwrap()
-        .split('&')
-        .next()
-        .unwrap()
-        .to_owned();
+    let state = start.state;
 
     // Server 2, on a new pool, receives the callback.
     let pool = fixture.runtime.block_on(connect(&config)).unwrap();
     let second = auth_on(PgStore::new(pool, handle.clone()));
-    let done = second.complete_login(&state, "code-1").unwrap();
+    let done = second
+        .complete_login(&state, Some(&state), "code-1")
+        .unwrap();
     assert_eq!(done.return_to, "/projects/1");
 
     // Server 3, after another restart, still knows the user.
@@ -399,7 +414,7 @@ fn sign_in_started_before_a_restart_completes_and_stays_signed_in() {
 
     // The state was consumed by server 2, so a replayed callback is rejected.
     assert!(matches!(
-        third.complete_login(&state, "code-1"),
+        third.complete_login(&state, Some(&state), "code-1"),
         Err(AppError::Validation(_))
     ));
 

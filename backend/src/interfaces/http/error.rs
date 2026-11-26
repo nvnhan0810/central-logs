@@ -57,6 +57,11 @@ impl From<AppError> for ApiError {
             AppError::Storage(_) => {
                 return Self::internal();
             }
+            AppError::Unauthorized(_) => (
+                StatusCode::UNAUTHORIZED,
+                "unauthenticated",
+                "sign in required".into(),
+            ),
             // Identity provider details stay server-side too.
             AppError::Upstream(_) => (
                 StatusCode::BAD_GATEWAY,

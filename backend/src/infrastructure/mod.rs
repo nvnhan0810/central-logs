@@ -2,5 +2,6 @@
 
 pub mod fs;
 pub mod memory;
-pub mod oidc;
+pub mod oauth2;
 pub mod postgres;
+pub mod session_crypto;

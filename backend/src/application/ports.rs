@@ -1,6 +1,6 @@
 //! Ports: interfaces the application needs from the outside world.
 
-use crate::application::auth::{Identity, PendingLogin, Session};
+use crate::application::auth::{IdentityTokens, PendingLogin, Session};
 use crate::application::error::AppError;
 use crate::application::views::{LogChunk, LogEntry, LogRepositoryView, ProjectView};
 use crate::domain::{
@@ -85,14 +85,25 @@ pub trait LogFileSystem: Send + Sync {
 
 // ---- Identity ---------------------------------------------------------------
 
-/// External identity provider (OpenID Connect). Implementations own discovery, HTTP and token handling.
+/// External identity provider (OAuth 2.0 authorization code flow). Implementations own HTTP and token handling.
 pub trait IdentityProvider: Send + Sync {
     /// Builds the URL that starts the authorization code flow for this `state`.
     /// The PKCE challenge is derived from `code_verifier`, which the backend keeps.
     fn authorization_url(&self, state: &str, code_verifier: &str) -> Result<String, AppError>;
 
-    /// Exchanges the authorization `code` for tokens and returns the user's claims.
-    fn exchange_code(&self, code: &str, code_verifier: &str) -> Result<Identity, AppError>;
+    /// Exchanges the authorization `code` for tokens and reads the user's claims.
+    fn exchange_code(&self, code: &str, code_verifier: &str) -> Result<IdentityTokens, AppError>;
+
+    /// Exchanges a refresh token for new tokens, with a rotated refresh token.
+    /// Returns `AppError::Unauthorized` when the provider rejects the refresh token,
+    /// and `AppError::Upstream` when the provider cannot be reached or answers unexpectedly.
+    fn refresh(&self, refresh_token: &str) -> Result<IdentityTokens, AppError>;
+}
+
+/// Encrypts secrets kept in the database (refresh tokens), bound to the session they belong to.
+pub trait SecretSealer: Send + Sync {
+    fn seal(&self, session_id: &str, plaintext: &str) -> Result<String, AppError>;
+    fn unseal(&self, session_id: &str, sealed: &str) -> Result<String, AppError>;
 }
 
 pub trait PendingLoginStore: Send + Sync {

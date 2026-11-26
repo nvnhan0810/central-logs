@@ -5,7 +5,8 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderValue, Method, Request, StatusCode, header};
-use central_logs_backend::infrastructure::oidc::{OidcConfig, OidcIdentityProvider};
+use central_logs_backend::infrastructure::oauth2::{OAuth2Config, OAuth2IdentityProvider};
+use central_logs_backend::infrastructure::session_crypto::AesSecretSealer;
 use central_logs_backend::interfaces::http::{AppState, WebSettings, router};
 use tower::ServiceExt;
 
@@ -13,17 +14,20 @@ const FRONTEND: &str = "http://localhost:5173";
 const OTHER_FRONTEND: &str = "https://logs.example.com";
 
 fn app(frontend_url: &str) -> Router {
-    let identity = OidcIdentityProvider::new(OidcConfig {
-        issuer: "http://127.0.0.1:9".into(),
+    let identity = OAuth2IdentityProvider::new(OAuth2Config {
+        identity_url: "http://127.0.0.1:9".into(),
         client_id: "central-logs".into(),
-        client_secret: None,
         redirect_uri: "http://127.0.0.1:8080/api/auth/callback".into(),
     });
     let web = WebSettings {
         frontend_url: frontend_url.into(),
         cookie_secure: false,
     };
-    router(AppState::in_memory(Arc::new(identity), web))
+    router(AppState::in_memory(
+        Arc::new(identity),
+        web,
+        Arc::new(AesSecretSealer::new([7; 32])),
+    ))
 }
 
 fn header_value(response: &axum::response::Response, name: header::HeaderName) -> Option<String> {

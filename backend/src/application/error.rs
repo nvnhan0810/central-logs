@@ -17,4 +17,7 @@ pub enum AppError {
     /// The external identity provider failed or could not be reached.
     #[error("identity provider error: {0}")]
     Upstream(String),
+    /// The identity provider rejected the credentials (for example a refresh token that was revoked).
+    #[error("unauthorized: {0}")]
+    Unauthorized(String),
 }
