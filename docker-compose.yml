@@ -1,0 +1,89 @@
+# Local environment for running the test suites.
+#
+#   docker compose up -d postgres                       # start PostgreSQL only (dev and manual use)
+#   docker compose run --rm backend-test                # backend: clippy, unit/API tests, PostgreSQL tests
+#   docker compose run --rm frontend-test               # frontend: typecheck, lint, format check, unit tests
+#   docker compose down -v                              # stop everything and drop the database volume
+#
+# The source trees are bind-mounted, so the test runners always see the working copy.
+# Build output and dependencies live in named volumes, so they stay out of the working tree.
+# Everything here is for local use only: the database is bound to 127.0.0.1 and uses a throwaway password.
+
+name: central-logs
+
+x-db-client-env: &db-client-env
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_USERNAME: central_logs
+  DB_PASSWORD: central_logs
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: central_logs
+      POSTGRES_PASSWORD: central_logs
+      POSTGRES_DB: central_logs
+    ports:
+      - "127.0.0.1:${CENTRAL_LOGS_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U central_logs -d central_logs"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  backend-test:
+    image: rust:1
+    profiles: ["test"]
+    working_dir: /workspace/backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      <<: *db-client-env
+      # The PostgreSQL tests refuse to run unless the database name ends in `_test`.
+      # The fixture runs migrations, which create this database when it is missing.
+      DB_NAME: central_logs_test
+      CARGO_TERM_COLOR: always
+    volumes:
+      - ./backend:/workspace/backend
+      - backend-target:/workspace/backend/target
+      - cargo-registry:/usr/local/cargo/registry
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        cargo clippy --all-targets -- -D warnings
+        cargo test
+        cargo test --test postgres_store -- --ignored --test-threads=1
+
+  frontend-test:
+    image: node:24-alpine
+    profiles: ["test"]
+    working_dir: /workspace/frontend
+    environment:
+      CI: "1"
+    volumes:
+      - ./frontend:/workspace/frontend
+      - frontend-node-modules:/workspace/frontend/node_modules
+      - npm-cache:/root/.npm
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        npm ci
+        npm run typecheck
+        npm run lint
+        npm run format:check
+        npm test
+
+volumes:
+  postgres-data:
+  backend-target:
+  cargo-registry:
+  frontend-node-modules:
+  npm-cache:
