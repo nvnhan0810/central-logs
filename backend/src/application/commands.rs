@@ -40,12 +40,6 @@ impl CommandService {
 
     pub fn create_project(&self, command: CreateProject) -> Result<ProjectId, AppError> {
         let project = Project::create(ProjectId::new(), &command.name, &command.description)?;
-        if self.projects.name_taken(project.name())? {
-            return Err(AppError::Conflict(format!(
-                "project name already exists: {}",
-                project.name().as_str()
-            )));
-        }
         self.projects.save(&project)?;
         Ok(project.id())
     }
@@ -108,14 +102,14 @@ mod tests {
     }
 
     #[test]
-    fn create_project_rejects_duplicate_name() {
+    fn create_project_allows_names_already_in_use() {
         let h = harness(&[]);
-        h.commands.create_project(new_project("Payments")).unwrap();
-        let err = h
+        let first = h.commands.create_project(new_project("Payments")).unwrap();
+        let second = h
             .commands
             .create_project(new_project(" Payments "))
-            .unwrap_err();
-        assert!(matches!(err, AppError::Conflict(_)));
+            .unwrap();
+        assert_ne!(first, second);
     }
 
     #[test]

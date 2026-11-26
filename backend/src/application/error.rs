@@ -10,8 +10,6 @@ pub enum AppError {
     Validation(String),
     #[error("{0} not found")]
     NotFound(String),
-    #[error("{0}")]
-    Conflict(String),
     #[error("storage error: {0}")]
     Storage(String),
     /// The external identity provider failed or could not be reached.

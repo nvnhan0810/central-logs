@@ -12,7 +12,7 @@ use crate::application::ports::{
     ProjectRepository, SessionStore,
 };
 use crate::application::views::{LogRepositoryView, ProjectView};
-use crate::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
+use crate::domain::{LogRepository, LogRepositoryId, Project, ProjectId};
 
 #[derive(Default)]
 struct State {
@@ -43,10 +43,6 @@ impl ProjectRepository for InMemoryStore {
 
     fn find(&self, id: ProjectId) -> Result<Option<Project>, AppError> {
         Ok(self.lock()?.projects.get(&id).cloned())
-    }
-
-    fn name_taken(&self, name: &Name) -> Result<bool, AppError> {
-        Ok(self.lock()?.projects.values().any(|p| p.name() == name))
     }
 }
 

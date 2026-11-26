@@ -4,7 +4,7 @@ use crate::application::auth::{IdentityTokens, PendingLogin, Session};
 use crate::application::error::AppError;
 use crate::application::views::{LogChunk, LogEntry, LogRepositoryView, ProjectView};
 use crate::domain::{
-    LogDirectory, LogRepository, LogRepositoryId, Name, Project, ProjectId, RelativeLogPath,
+    LogDirectory, LogRepository, LogRepositoryId, Project, ProjectId, RelativeLogPath,
 };
 
 pub const DEFAULT_MAX_LINES: usize = 200;
@@ -41,7 +41,6 @@ impl ReadWindow {
 pub trait ProjectRepository: Send + Sync {
     fn save(&self, project: &Project) -> Result<(), AppError>;
     fn find(&self, id: ProjectId) -> Result<Option<Project>, AppError>;
-    fn name_taken(&self, name: &Name) -> Result<bool, AppError>;
 }
 
 pub trait LogRepositoryRepository: Send + Sync {

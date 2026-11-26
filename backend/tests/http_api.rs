@@ -104,18 +104,11 @@ async fn creates_and_lists_projects() {
 }
 
 #[tokio::test]
-async fn duplicate_project_name_is_conflict() {
+async fn project_names_may_repeat() {
     let app = app();
-    create_project(&app, "Payments").await;
-    let (status, body) = send(
-        &app,
-        "POST",
-        "/api/projects",
-        Some(json!({"name": "Payments"})),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(body["error"]["code"], "conflict");
+    let first = create_project(&app, "Payments").await;
+    let second = create_project(&app, "Payments").await;
+    assert_ne!(first, second);
 }
 
 #[tokio::test]

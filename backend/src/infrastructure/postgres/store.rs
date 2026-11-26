@@ -16,7 +16,7 @@ use crate::application::ports::{
     ProjectRepository, SessionStore,
 };
 use crate::application::views::{LogRepositoryView, ProjectView};
-use crate::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
+use crate::domain::{LogRepository, LogRepositoryId, Project, ProjectId};
 
 pub type PgPool = sqlx::PgPool;
 
@@ -52,15 +52,6 @@ impl PgStore {
 
 fn storage(error: sqlx::Error) -> AppError {
     AppError::Storage(error.to_string())
-}
-
-/// Maps a failed write. A unique-constraint violation becomes a conflict, so a race between
-/// the name check and the insert still reports a duplicate name.
-fn write_error(error: sqlx::Error, conflict: impl FnOnce() -> String) -> AppError {
-    match &error {
-        sqlx::Error::Database(db) if db.is_unique_violation() => AppError::Conflict(conflict()),
-        _ => storage(error),
-    }
 }
 
 fn project_id_of(id: Uuid) -> Result<ProjectId, AppError> {
@@ -117,19 +108,17 @@ fn pending_from_row(row: &PgRow) -> Result<PendingLogin, AppError> {
 impl ProjectRepository for PgStore {
     fn save(&self, project: &Project) -> Result<(), AppError> {
         let name = project.name().as_str();
-        self.runtime
-            .block_on(
-                sqlx::query(
-                    "INSERT INTO projects (id, name, description) VALUES ($1, $2, $3)
-                     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description",
-                )
-                .bind(project.id().as_uuid())
-                .bind(name)
-                .bind(project.description())
-                .execute(&self.pool),
+        self.run(
+            sqlx::query(
+                "INSERT INTO projects (id, name, description) VALUES ($1, $2, $3)
+                 ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description",
             )
-            .map(|_| ())
-            .map_err(|e| write_error(e, || format!("project name already exists: {name}")))
+            .bind(project.id().as_uuid())
+            .bind(name)
+            .bind(project.description())
+            .execute(&self.pool),
+        )
+        .map(|_| ())
     }
 
     fn find(&self, id: ProjectId) -> Result<Option<Project>, AppError> {
@@ -139,14 +128,6 @@ impl ProjectRepository for PgStore {
                 .fetch_optional(&self.pool),
         )?;
         row.as_ref().map(project_from_row).transpose()
-    }
-
-    fn name_taken(&self, name: &Name) -> Result<bool, AppError> {
-        self.run(
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM projects WHERE name = $1)")
-                .bind(name.as_str())
-                .fetch_one(&self.pool),
-        )
     }
 }
 
