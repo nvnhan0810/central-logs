@@ -16,7 +16,7 @@ Layers, dependencies point inward:
 
 Domain invariants are enforced by factories, so invalid objects cannot be built:
 names are trimmed and 1–100 characters; directories must be absolute and must not contain `..`;
-a log repository needs at least one unique directory; project names are unique.
+a log repository needs at least one unique directory; project names need not be unique.
 
 ## Run
 
