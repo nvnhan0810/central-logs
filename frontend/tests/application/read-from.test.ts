@@ -35,6 +35,8 @@ function fakeGateway(content: string, pageBytes: number, calls: number[] = []): 
   return {
     listProjects: () => Promise.reject(new Error('unused')),
     listLogRepositories: () => Promise.reject(new Error('unused')),
+    createProject: () => Promise.reject(new Error('unused')),
+    createLogRepository: () => Promise.reject(new Error('unused')),
     listEntries: () => Promise.reject(new Error('unused')),
     readChunk: (_repo, _dir, _path, offset) => Promise.resolve(page(offset)),
   };

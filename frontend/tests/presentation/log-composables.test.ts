@@ -43,6 +43,8 @@ function gatewayFor(
     listCalls: 0,
     listProjects: () => Promise.reject(new Error('unused')),
     listLogRepositories: () => Promise.reject(new Error('unused')),
+    createProject: () => Promise.reject(new Error('unused')),
+    createLogRepository: () => Promise.reject(new Error('unused')),
     listEntries: () => {
       gateway.listCalls++;
       return Promise.resolve(entries);

@@ -3,6 +3,8 @@ import type {
   LogEntry,
   LogGateway,
   LogRepository,
+  NewLogRepository,
+  NewProject,
   Project,
 } from '@/application/logs/log-gateway';
 import type { ApiClient } from '@/infrastructure/http/api-client';
@@ -32,6 +34,23 @@ export class HttpLogGateway implements LogGateway {
       `/projects/${encodeURIComponent(projectId)}/log-repositories`,
     );
     return asArray(body, 'log repositories').map(toLogRepository);
+  }
+
+  async createProject(input: NewProject): Promise<string> {
+    const body = await this.client.request('POST', '/projects', {
+      name: input.name,
+      description: input.description,
+    });
+    return asString(asObject(body, 'created project').id, 'created project.id');
+  }
+
+  async createLogRepository(projectId: string, input: NewLogRepository): Promise<string> {
+    const body = await this.client.request(
+      'POST',
+      `/projects/${encodeURIComponent(projectId)}/log-repositories`,
+      { name: input.name, directories: [...input.directories] },
+    );
+    return asString(asObject(body, 'created log repository').id, 'created log repository.id');
   }
 
   async listEntries(
