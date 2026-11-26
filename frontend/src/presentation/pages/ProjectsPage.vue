@@ -268,8 +268,8 @@ onMounted(() => {
   display: grid;
   gap: 0.5rem;
   padding: 1rem 1.25rem;
-  background: #fff;
-  border: 1px solid #dfe5ec;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
@@ -304,7 +304,7 @@ onMounted(() => {
 
 .repositories > li {
   padding: 0.5rem 0;
-  border-top: 1px solid #eef1f5;
+  border-top: 1px solid var(--border);
 }
 
 .directories {
@@ -315,8 +315,8 @@ onMounted(() => {
 }
 
 .secondary {
-  background: #fff;
-  color: #1f2933;
+  background: var(--surface);
+  color: var(--text);
 }
 
 .small {
@@ -325,16 +325,16 @@ onMounted(() => {
 }
 
 .danger-outline {
-  background: #fff;
-  color: #b42318;
-  border-color: #b42318;
+  background: var(--surface);
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .muted {
-  color: #6b7785;
+  color: var(--muted);
 }
 
 .error {
-  color: #b42318;
+  color: var(--danger);
 }
 </style>

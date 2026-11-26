@@ -202,9 +202,9 @@ onMounted(() => {
   min-width: 14rem;
   padding: 0.35rem 0.5rem;
   font: inherit;
-  border: 1px solid #c3ccd6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .workspace {
@@ -218,8 +218,8 @@ onMounted(() => {
 .sidebar {
   display: flex;
   min-height: 0;
-  background: #fff;
-  border: 1px solid #dfe5ec;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.5rem 0;
 }
@@ -229,10 +229,10 @@ onMounted(() => {
 }
 
 .muted {
-  color: #6b7785;
+  color: var(--muted);
 }
 
 .error {
-  color: #b42318;
+  color: var(--danger);
 }
 </style>

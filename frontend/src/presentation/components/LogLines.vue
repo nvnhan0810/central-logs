@@ -130,7 +130,7 @@ const statusText = computed(() => {
   min-width: 0;
   padding: 0.4rem 0.6rem;
   font: inherit;
-  border: 1px solid #c3ccd6;
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
 }
 
@@ -148,14 +148,14 @@ const statusText = computed(() => {
   overflow: auto;
   min-height: 0;
   list-style: none;
-  background: #fff;
-  border: 1px solid #dfe5ec;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
 .lines li {
   padding: 0.15rem 0.6rem;
-  border-bottom: 1px solid #f0f3f6;
+  border-bottom: 1px solid var(--border);
 }
 
 .lines code {
@@ -165,7 +165,7 @@ const statusText = computed(() => {
 }
 
 .muted {
-  color: #6b7785;
+  color: var(--muted);
 }
 
 .small {
@@ -173,10 +173,10 @@ const statusText = computed(() => {
 }
 
 .error {
-  color: #b42318;
+  color: var(--danger);
 }
 
 .live {
-  color: #067647;
+  color: var(--green);
 }
 </style>

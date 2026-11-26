@@ -43,13 +43,13 @@ function onNativeClose(): void {
 .modal {
   width: min(32rem, calc(100vw - 2rem));
   padding: 0;
-  border: 1px solid #c3ccd6;
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 12px 32px var(--shadow);
 }
 
 .modal::backdrop {
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--backdrop);
 }
 
 .modal-body {
@@ -71,7 +71,7 @@ function onNativeClose(): void {
 .ghost {
   padding: 0.25rem 0.6rem;
   background: transparent;
-  color: #1f2933;
+  color: var(--text);
   border-color: transparent;
   font-size: 1.1rem;
   line-height: 1;
