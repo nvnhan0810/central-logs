@@ -35,6 +35,22 @@ Dependencies point inward. Domain and application code do not import Vue, the DO
 The frontend never sees the authorization code, PKCE verifier or session id. Its only credential
 is the `HttpOnly` cookie `central_logs_session`, which the browser sends automatically.
 
+## Logs screen
+
+After sign-in the home page (`/`) is the logs screen (`src/presentation/pages/LogsPage.vue`):
+
+- **Project and sub-project** selectors. A project is `Project`; a sub-project is a backend
+  `LogRepository`, which holds one or more absolute directories.
+- **Tree** in the sidebar: each registered directory is a root. Directories load their children the first
+  time they open. Clicking a file opens it.
+- **Viewer**: lines are shown newest first. The search box filters by plain text (case-insensitive) or,
+  with **Regex** ticked, by a JavaScript regular expression. At most 1000 matching lines are drawn at once.
+- **Live updates**: the open file is polled every 3 seconds. Only bytes past the last offset read are
+  requested, and new lines are appended. After an error the next poll starts again from the top of the file.
+
+The backend has no push channel, so this is polling. Opening a file reads it to the end page by page and
+keeps every line in memory; very large files are slow to open until the backend offers a tail endpoint.
+
 ## Run
 
 Start the backend first (see `../backend/README.md`), then:
