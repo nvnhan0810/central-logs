@@ -53,6 +53,28 @@ export class HttpLogGateway implements LogGateway {
     return asString(asObject(body, 'created log repository').id, 'created log repository.id');
   }
 
+  async updateProject(projectId: string, input: NewProject): Promise<void> {
+    await this.client.request('PUT', `/projects/${encodeURIComponent(projectId)}`, {
+      name: input.name,
+      description: input.description,
+    });
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    await this.client.request('DELETE', `/projects/${encodeURIComponent(projectId)}`);
+  }
+
+  async updateLogRepository(repositoryId: string, input: NewLogRepository): Promise<void> {
+    await this.client.request('PUT', `/log-repositories/${encodeURIComponent(repositoryId)}`, {
+      name: input.name,
+      directories: [...input.directories],
+    });
+  }
+
+  async deleteLogRepository(repositoryId: string): Promise<void> {
+    await this.client.request('DELETE', `/log-repositories/${encodeURIComponent(repositoryId)}`);
+  }
+
   async listEntries(
     repositoryId: string,
     directory: string,

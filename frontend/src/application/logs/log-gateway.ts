@@ -59,6 +59,14 @@ export interface LogGateway {
   createProject(input: NewProject): Promise<string>;
   /** Creates a sub-project under `projectId` and returns its id. */
   createLogRepository(projectId: string, input: NewLogRepository): Promise<string>;
+  /** Replaces a project's name and description. */
+  updateProject(projectId: string, input: NewProject): Promise<void>;
+  /** Deletes a project together with its sub-projects. */
+  deleteProject(projectId: string): Promise<void>;
+  /** Replaces a sub-project's name and directories. Its project stays the same. */
+  updateLogRepository(repositoryId: string, input: NewLogRepository): Promise<void>;
+  /** Deletes one sub-project. */
+  deleteLogRepository(repositoryId: string): Promise<void>;
   /** Children of `relativePath` inside one registered `directory` (`''` is the directory itself). */
   listEntries(
     repositoryId: string,

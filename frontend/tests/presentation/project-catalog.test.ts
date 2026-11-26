@@ -48,6 +48,10 @@ class FakeCatalog {
         });
         return Promise.resolve(id);
       },
+      updateProject: () => Promise.reject(new Error('unused')),
+      deleteProject: () => Promise.reject(new Error('unused')),
+      updateLogRepository: () => Promise.reject(new Error('unused')),
+      deleteLogRepository: () => Promise.reject(new Error('unused')),
       listEntries: () => Promise.reject(new Error('unused')),
       readChunk: () => Promise.reject(new Error('unused')),
     };

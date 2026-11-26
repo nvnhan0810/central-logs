@@ -58,6 +58,47 @@ describe('HttpLogGateway writes', () => {
     });
   });
 
+  it('puts a project to its id with the new name and description', async () => {
+    const sent: Sent[] = [];
+    const gateway = gatewayReplying(200, { id: 'p1' }, sent);
+
+    await gateway.updateProject('p1', { name: 'Billing', description: '' });
+    expect(sent[0]).toMatchObject({
+      url: '/api/projects/p1',
+      method: 'PUT',
+      body: { name: 'Billing', description: '' },
+    });
+  });
+
+  it('deletes a project by id and accepts the empty 204 reply', async () => {
+    const sent: Sent[] = [];
+    const gateway = gatewayReplying(204, undefined, sent);
+
+    await expect(gateway.deleteProject('p1')).resolves.toBeUndefined();
+    expect(sent[0]).toMatchObject({ url: '/api/projects/p1', method: 'DELETE' });
+    expect(sent[0]?.body).toBeUndefined();
+  });
+
+  it('puts a sub-project to its id with the directories', async () => {
+    const sent: Sent[] = [];
+    const gateway = gatewayReplying(200, { id: 'r1' }, sent);
+
+    await gateway.updateLogRepository('r1', { name: 'api', directories: ['/var/log/api'] });
+    expect(sent[0]).toMatchObject({
+      url: '/api/log-repositories/r1',
+      method: 'PUT',
+      body: { name: 'api', directories: ['/var/log/api'] },
+    });
+  });
+
+  it('deletes one sub-project by id', async () => {
+    const sent: Sent[] = [];
+    const gateway = gatewayReplying(204, undefined, sent);
+
+    await gateway.deleteLogRepository('r1');
+    expect(sent[0]).toMatchObject({ url: '/api/log-repositories/r1', method: 'DELETE' });
+  });
+
   it('keeps GET requests free of a body', async () => {
     const sent: Sent[] = [];
     const gateway = gatewayReplying(200, [], sent);

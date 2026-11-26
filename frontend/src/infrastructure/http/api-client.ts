@@ -41,7 +41,11 @@ export class ApiClient {
    * Sends a request with cookies and returns the parsed JSON body (`undefined` for 204).
    * A `body` is sent as JSON.
    */
-  async request(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+  async request(
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<unknown> {
     const response = await this.fetchImpl(this.url(path), {
       method,
       credentials: 'include',
