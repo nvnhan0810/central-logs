@@ -52,7 +52,6 @@ impl From<AppError> for ApiError {
                 error.to_string(),
             ),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found", error.to_string()),
-            AppError::Conflict(_) => (StatusCode::CONFLICT, "conflict", error.to_string()),
             // Storage details stay server-side.
             AppError::Storage(_) => {
                 return Self::internal();

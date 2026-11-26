@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { RouterLink, useRouter } from 'vue-router';
 
 import type { LogRepository, Project } from '@/application/logs/log-gateway';
 import { displayName } from '@/domain/auth/user';
@@ -122,6 +122,7 @@ onMounted(() => {
     <header class="topbar">
       <h1>Central Logs</h1>
       <div class="who">
+        <RouterLink :to="{ name: ROUTE_NAME.projects }">Dự án và sub-project</RouterLink>
         <span>{{ label }}</span>
         <button type="button" @click="onSignOut">Đăng xuất</button>
       </div>

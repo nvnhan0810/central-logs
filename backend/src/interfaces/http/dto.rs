@@ -5,14 +5,14 @@ use crate::application::views::{
 };
 
 #[derive(Debug, Deserialize)]
-pub struct CreateProjectRequest {
+pub struct ProjectRequest {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateLogRepositoryRequest {
+pub struct LogRepositoryRequest {
     pub name: String,
     pub directories: Vec<String>,
 }

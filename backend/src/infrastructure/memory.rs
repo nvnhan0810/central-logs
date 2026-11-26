@@ -12,7 +12,7 @@ use crate::application::ports::{
     ProjectRepository, SessionStore,
 };
 use crate::application::views::{LogRepositoryView, ProjectView};
-use crate::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
+use crate::domain::{LogRepository, LogRepositoryId, Project, ProjectId};
 
 #[derive(Default)]
 struct State {
@@ -45,8 +45,12 @@ impl ProjectRepository for InMemoryStore {
         Ok(self.lock()?.projects.get(&id).cloned())
     }
 
-    fn name_taken(&self, name: &Name) -> Result<bool, AppError> {
-        Ok(self.lock()?.projects.values().any(|p| p.name() == name))
+    fn delete(&self, id: ProjectId) -> Result<(), AppError> {
+        let mut state = self.lock()?;
+        state.projects.remove(&id);
+        // Mirrors the ON DELETE CASCADE of the PostgreSQL schema.
+        state.log_repositories.retain(|_, r| r.project_id() != id);
+        Ok(())
     }
 }
 
@@ -60,6 +64,11 @@ impl LogRepositoryRepository for InMemoryStore {
 
     fn find(&self, id: LogRepositoryId) -> Result<Option<LogRepository>, AppError> {
         Ok(self.lock()?.log_repositories.get(&id).cloned())
+    }
+
+    fn delete(&self, id: LogRepositoryId) -> Result<(), AppError> {
+        self.lock()?.log_repositories.remove(&id);
+        Ok(())
     }
 }
 

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::http::{HeaderValue, Method, header};
 use axum::response::Html;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use tokio::runtime::Handle;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -117,10 +117,19 @@ pub fn router(state: AppState) -> Router {
             "/api/projects",
             get(handlers::list_projects).post(handlers::create_project),
         )
-        .route("/api/projects/{id}", get(handlers::get_project))
+        .route(
+            "/api/projects/{id}",
+            get(handlers::get_project)
+                .put(handlers::update_project)
+                .delete(handlers::delete_project),
+        )
         .route(
             "/api/projects/{id}/log-repositories",
             get(handlers::list_log_repositories).post(handlers::create_log_repository),
+        )
+        .route(
+            "/api/log-repositories/{id}",
+            put(handlers::update_log_repository).delete(handlers::delete_log_repository),
         )
         .route(
             "/api/log-repositories/{id}/entries",
@@ -147,7 +156,7 @@ fn cors_layer(origin: &str) -> CorsLayer {
     let allowed = HeaderValue::from_str(origin).expect("CORS origin must be a valid header value");
     CorsLayer::new()
         .allow_origin(AllowOrigin::list([allowed]))
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_headers([header::CONTENT_TYPE])
         .allow_credentials(true)
 }

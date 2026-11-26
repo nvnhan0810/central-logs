@@ -13,6 +13,18 @@ export interface LogRepository {
   readonly directories: readonly string[];
 }
 
+/** Input for creating a project. */
+export interface NewProject {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** Input for creating a sub-project under a project. Each directory must be an existing absolute path. */
+export interface NewLogRepository {
+  readonly name: string;
+  readonly directories: readonly string[];
+}
+
 export interface LogEntry {
   readonly name: string;
   /** Path from the registered directory root, e.g. `2026/11/app.log`. */
@@ -43,6 +55,18 @@ export interface FileChunk {
 export interface LogGateway {
   listProjects(): Promise<readonly Project[]>;
   listLogRepositories(projectId: string): Promise<readonly LogRepository[]>;
+  /** Creates a project and returns its id. */
+  createProject(input: NewProject): Promise<string>;
+  /** Creates a sub-project under `projectId` and returns its id. */
+  createLogRepository(projectId: string, input: NewLogRepository): Promise<string>;
+  /** Replaces a project's name and description. */
+  updateProject(projectId: string, input: NewProject): Promise<void>;
+  /** Deletes a project together with its sub-projects. */
+  deleteProject(projectId: string): Promise<void>;
+  /** Replaces a sub-project's name and directories. Its project stays the same. */
+  updateLogRepository(repositoryId: string, input: NewLogRepository): Promise<void>;
+  /** Deletes one sub-project. */
+  deleteLogRepository(repositoryId: string): Promise<void>;
   /** Children of `relativePath` inside one registered `directory` (`''` is the directory itself). */
   listEntries(
     repositoryId: string,

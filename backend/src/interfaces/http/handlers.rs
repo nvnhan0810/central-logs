@@ -5,11 +5,13 @@ use serde::Deserialize;
 
 use super::AppState;
 use super::dto::{
-    CreateLogRepositoryRequest, CreateProjectRequest, EntryResponse, IdResponse, LogChunkResponse,
-    LogRepositoryResponse, ProjectResponse,
+    EntryResponse, IdResponse, LogChunkResponse, LogRepositoryRequest, LogRepositoryResponse,
+    ProjectRequest, ProjectResponse,
 };
 use super::error::ApiError;
-use crate::application::commands::{CreateLogRepository, CreateProject};
+use crate::application::commands::{
+    CreateLogRepository, CreateProject, UpdateLogRepository, UpdateProject,
+};
 use crate::application::error::AppError;
 use crate::domain::{LogRepositoryId, ProjectId};
 
@@ -35,7 +37,7 @@ fn repository_id(raw: &str) -> Result<LogRepositoryId, ApiError> {
 
 pub async fn create_project(
     State(state): State<AppState>,
-    Json(body): Json<CreateProjectRequest>,
+    Json(body): Json<ProjectRequest>,
 ) -> Result<(StatusCode, Json<IdResponse>), ApiError> {
     let commands = state.commands.clone();
     let id = blocking(move || {
@@ -51,6 +53,34 @@ pub async fn create_project(
             id: id.as_uuid().to_string(),
         }),
     ))
+}
+
+pub async fn update_project(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ProjectRequest>,
+) -> Result<Json<ProjectResponse>, ApiError> {
+    let id = project_id(&id)?;
+    let commands = state.commands.clone();
+    let view = blocking(move || {
+        commands.update_project(UpdateProject {
+            id,
+            name: body.name,
+            description: body.description.unwrap_or_default(),
+        })
+    })
+    .await?;
+    Ok(Json(view.into()))
+}
+
+pub async fn delete_project(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = project_id(&id)?;
+    let commands = state.commands.clone();
+    blocking(move || commands.delete_project(id)).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn list_projects(
@@ -74,7 +104,7 @@ pub async fn get_project(
 pub async fn create_log_repository(
     State(state): State<AppState>,
     Path(project): Path<String>,
-    Json(body): Json<CreateLogRepositoryRequest>,
+    Json(body): Json<LogRepositoryRequest>,
 ) -> Result<(StatusCode, Json<IdResponse>), ApiError> {
     let project_id = project_id(&project)?;
     let commands = state.commands.clone();
@@ -92,6 +122,34 @@ pub async fn create_log_repository(
             id: id.as_uuid().to_string(),
         }),
     ))
+}
+
+pub async fn update_log_repository(
+    State(state): State<AppState>,
+    Path(repo): Path<String>,
+    Json(body): Json<LogRepositoryRequest>,
+) -> Result<Json<LogRepositoryResponse>, ApiError> {
+    let id = repository_id(&repo)?;
+    let commands = state.commands.clone();
+    let view = blocking(move || {
+        commands.update_log_repository(UpdateLogRepository {
+            id,
+            name: body.name,
+            directories: body.directories,
+        })
+    })
+    .await?;
+    Ok(Json(view.into()))
+}
+
+pub async fn delete_log_repository(
+    State(state): State<AppState>,
+    Path(repo): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id = repository_id(&repo)?;
+    let commands = state.commands.clone();
+    blocking(move || commands.delete_log_repository(id)).await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 pub async fn list_log_repositories(

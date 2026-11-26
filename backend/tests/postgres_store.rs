@@ -21,7 +21,7 @@ use central_logs_backend::application::ports::{
     IdentityProvider, LogRepositoryReadModel, LogRepositoryRepository, PendingLoginStore,
     ProjectReadModel, ProjectRepository, SessionStore,
 };
-use central_logs_backend::domain::{LogRepository, LogRepositoryId, Name, Project, ProjectId};
+use central_logs_backend::domain::{LogRepository, LogRepositoryId, Project, ProjectId};
 use central_logs_backend::infrastructure::oauth2::{OAuth2Config, OAuth2IdentityProvider};
 use central_logs_backend::infrastructure::postgres::{DbConfig, PgPool, PgStore, connect, migrate};
 use central_logs_backend::infrastructure::session_crypto::AesSecretSealer;
@@ -89,8 +89,6 @@ fn projects_round_trip_and_list_in_name_order() {
         ProjectRepository::find(&store, ProjectId::new()).unwrap(),
         None
     );
-    assert!(store.name_taken(&Name::parse("beta").unwrap()).unwrap());
-    assert!(!store.name_taken(&Name::parse("gamma").unwrap()).unwrap());
 
     let names: Vec<String> = store.list().unwrap().into_iter().map(|p| p.name).collect();
     // Byte order, like the in-memory store: "Alpha" sorts before "beta".
@@ -117,12 +115,12 @@ fn saving_an_existing_project_updates_it() {
 
 #[test]
 #[ignore = "needs a test database, see module docs"]
-fn duplicate_project_name_is_a_conflict() {
+fn project_names_do_not_have_to_be_unique() {
     let fixture = Fixture::new();
     let store = fixture.store();
     ProjectRepository::save(&store, &project("shared", "")).unwrap();
-    let err = ProjectRepository::save(&store, &project("shared", "")).unwrap_err();
-    assert!(matches!(err, AppError::Conflict(_)), "{err:?}");
+    ProjectRepository::save(&store, &project("shared", "")).unwrap();
+    assert_eq!(store.list().unwrap().len(), 2);
 }
 
 #[test]
@@ -159,6 +157,49 @@ fn log_repositories_keep_directory_order_and_replace_on_save() {
     );
     let views = store.list_by_project(owner.id()).unwrap();
     assert_eq!(views[0].directories, vec!["/opt/logs"]);
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
+fn deleting_a_project_cascades_to_its_log_repositories() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let owner = project("payments", "");
+    ProjectRepository::save(&store, &owner).unwrap();
+    let repo = LogRepository::create(LogRepositoryId::new(), owner.id(), "api", &["/var/log/api"])
+        .unwrap();
+    LogRepositoryRepository::save(&store, &repo).unwrap();
+
+    ProjectRepository::delete(&store, owner.id()).unwrap();
+    assert_eq!(ProjectRepository::find(&store, owner.id()).unwrap(), None);
+    assert_eq!(
+        LogRepositoryRepository::find(&store, repo.id()).unwrap(),
+        None
+    );
+    assert!(store.list_by_project(owner.id()).unwrap().is_empty());
+}
+
+#[test]
+#[ignore = "needs a test database, see module docs"]
+fn deleting_a_log_repository_keeps_its_project() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let owner = project("payments", "");
+    ProjectRepository::save(&store, &owner).unwrap();
+    let repo = LogRepository::create(LogRepositoryId::new(), owner.id(), "api", &["/var/log/api"])
+        .unwrap();
+    LogRepositoryRepository::save(&store, &repo).unwrap();
+
+    LogRepositoryRepository::delete(&store, repo.id()).unwrap();
+    assert_eq!(
+        LogRepositoryRepository::find(&store, repo.id()).unwrap(),
+        None
+    );
+    assert!(
+        ProjectRepository::find(&store, owner.id())
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]
@@ -246,14 +287,14 @@ fn api_writes_are_visible_to_a_restarted_server() {
         assert_eq!(status, StatusCode::CREATED);
         let id = created["id"].as_str().unwrap().to_owned();
 
-        let (status, duplicate) = send(
+        let (status, _) = send(
             &first,
             "POST",
             "/api/projects",
             Some(json!({ "name": "payments" })),
         )
         .await;
-        assert_eq!(status, StatusCode::CONFLICT, "{duplicate}");
+        assert_eq!(status, StatusCode::CREATED);
 
         // A second server built on the same database, as after a restart.
         let second = router(AppState::with_postgres(
