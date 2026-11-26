@@ -26,6 +26,14 @@ export interface ProjectCatalog {
   addProject(input: NewProject): Promise<void>;
   /** Creates a sub-project, then reloads. Rejects with the backend's message when the create fails. */
   addRepository(projectId: string, input: NewLogRepository): Promise<void>;
+  /** Saves a project's name and description, then reloads. Rejects with the backend's message on failure. */
+  updateProject(projectId: string, input: NewProject): Promise<void>;
+  /** Deletes a project and its sub-projects, then reloads. */
+  deleteProject(projectId: string): Promise<void>;
+  /** Saves a sub-project's name and directories, then reloads. Rejects with the backend's message on failure. */
+  updateRepository(repositoryId: string, input: NewLogRepository): Promise<void>;
+  /** Deletes one sub-project, then reloads. */
+  deleteRepository(repositoryId: string): Promise<void>;
 }
 
 /** State and actions of the projects page. Errors from writes are thrown so the dialog can show them. */
@@ -76,5 +84,36 @@ export function useProjectCatalog(gateway: LogGateway): ProjectCatalog {
     await load();
   }
 
-  return { items, loading, loadError, load, addProject, addRepository };
+  async function updateProject(projectId: string, input: NewProject): Promise<void> {
+    await gateway.updateProject(projectId, input);
+    await load();
+  }
+
+  async function deleteProject(projectId: string): Promise<void> {
+    await gateway.deleteProject(projectId);
+    await load();
+  }
+
+  async function updateRepository(repositoryId: string, input: NewLogRepository): Promise<void> {
+    await gateway.updateLogRepository(repositoryId, input);
+    await load();
+  }
+
+  async function deleteRepository(repositoryId: string): Promise<void> {
+    await gateway.deleteLogRepository(repositoryId);
+    await load();
+  }
+
+  return {
+    items,
+    loading,
+    loadError,
+    load,
+    addProject,
+    addRepository,
+    updateProject,
+    deleteProject,
+    updateRepository,
+    deleteRepository,
+  };
 }

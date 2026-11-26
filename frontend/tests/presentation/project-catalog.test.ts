@@ -15,6 +15,7 @@ class FakeCatalog {
   repositories: LogRepository[] = [];
   listFailure: string | null = null;
   createFailure: string | null = null;
+  updateFailure: string | null = null;
   private nextId = 1;
 
   gateway(): LogGateway {
@@ -48,10 +49,38 @@ class FakeCatalog {
         });
         return Promise.resolve(id);
       },
-      updateProject: () => Promise.reject(new Error('unused')),
-      deleteProject: () => Promise.reject(new Error('unused')),
-      updateLogRepository: () => Promise.reject(new Error('unused')),
-      deleteLogRepository: () => Promise.reject(new Error('unused')),
+      updateProject: (projectId: string, input: NewProject) => {
+        if (!this.projects.some((p) => p.id === projectId)) {
+          return Promise.reject(new Error('project not found'));
+        }
+        this.projects = this.projects.map((p) =>
+          p.id === projectId ? { ...p, name: input.name, description: input.description } : p,
+        );
+        return Promise.resolve();
+      },
+      deleteProject: (projectId: string) => {
+        this.projects = this.projects.filter((p) => p.id !== projectId);
+        this.repositories = this.repositories.filter((r) => r.projectId !== projectId);
+        return Promise.resolve();
+      },
+      updateLogRepository: (repositoryId: string, input: NewLogRepository) => {
+        if (this.updateFailure !== null) {
+          return Promise.reject(new Error(this.updateFailure));
+        }
+        if (!this.repositories.some((r) => r.id === repositoryId)) {
+          return Promise.reject(new Error('sub-project not found'));
+        }
+        this.repositories = this.repositories.map((r) =>
+          r.id === repositoryId
+            ? { ...r, name: input.name, directories: [...input.directories] }
+            : r,
+        );
+        return Promise.resolve();
+      },
+      deleteLogRepository: (repositoryId: string) => {
+        this.repositories = this.repositories.filter((r) => r.id !== repositoryId);
+        return Promise.resolve();
+      },
       listEntries: () => Promise.reject(new Error('unused')),
       readChunk: () => Promise.reject(new Error('unused')),
     };
@@ -150,5 +179,83 @@ describe('useProjectCatalog', () => {
 
     expect(catalog.items.value.map((item) => item.project.id)).toEqual(['new']);
     expect(catalog.loading.value).toBe(false);
+  });
+
+  it('updates a project and shows the new name after reloading', async () => {
+    const fake = new FakeCatalog();
+    fake.projects = [{ id: 'p1', name: 'Payments', description: '' }];
+    const catalog = useProjectCatalog(fake.gateway());
+    await catalog.load();
+
+    await catalog.updateProject('p1', { name: 'Billing', description: 'Hóa đơn' });
+
+    expect(catalog.items.value[0]?.project).toEqual({
+      id: 'p1',
+      name: 'Billing',
+      description: 'Hóa đơn',
+    });
+  });
+
+  it('deletes a project together with its sub-projects only', async () => {
+    const fake = new FakeCatalog();
+    fake.projects = [
+      { id: 'p1', name: 'Payments', description: '' },
+      { id: 'p2', name: 'Search', description: '' },
+    ];
+    fake.repositories = [
+      { id: 'r1', projectId: 'p1', name: 'api', directories: ['/var/log/api'] },
+      { id: 'r2', projectId: 'p2', name: 'indexer', directories: ['/srv/index'] },
+    ];
+    const catalog = useProjectCatalog(fake.gateway());
+    await catalog.load();
+
+    await catalog.deleteProject('p1');
+
+    expect(catalog.items.value.map((item) => item.project.id)).toEqual(['p2']);
+    expect(catalog.items.value[0]?.repositories.map((r) => r.id)).toEqual(['r2']);
+  });
+
+  it('updates a sub-project and shows its new directories', async () => {
+    const fake = new FakeCatalog();
+    fake.projects = [{ id: 'p1', name: 'Payments', description: '' }];
+    fake.repositories = [{ id: 'r1', projectId: 'p1', name: 'api', directories: ['/var/log/api'] }];
+    const catalog = useProjectCatalog(fake.gateway());
+    await catalog.load();
+
+    await catalog.updateRepository('r1', { name: 'api-v2', directories: ['/srv/api', '/srv/old'] });
+
+    expect(catalog.items.value[0]?.repositories).toEqual([
+      { id: 'r1', projectId: 'p1', name: 'api-v2', directories: ['/srv/api', '/srv/old'] },
+    ]);
+  });
+
+  it('throws the update error so the popup can show it, and keeps the old values', async () => {
+    const fake = new FakeCatalog();
+    fake.projects = [{ id: 'p1', name: 'Payments', description: '' }];
+    fake.repositories = [{ id: 'r1', projectId: 'p1', name: 'api', directories: ['/var/log/api'] }];
+    const catalog = useProjectCatalog(fake.gateway());
+    await catalog.load();
+
+    fake.updateFailure = 'directory does not exist: /nope';
+    await expect(
+      catalog.updateRepository('r1', { name: 'api', directories: ['/nope'] }),
+    ).rejects.toThrow('directory does not exist: /nope');
+    expect(catalog.items.value[0]?.repositories[0]?.directories).toEqual(['/var/log/api']);
+  });
+
+  it('deletes one sub-project and leaves its project in place', async () => {
+    const fake = new FakeCatalog();
+    fake.projects = [{ id: 'p1', name: 'Payments', description: '' }];
+    fake.repositories = [
+      { id: 'r1', projectId: 'p1', name: 'api', directories: ['/var/log/api'] },
+      { id: 'r2', projectId: 'p1', name: 'worker', directories: ['/var/log/worker'] },
+    ];
+    const catalog = useProjectCatalog(fake.gateway());
+    await catalog.load();
+
+    await catalog.deleteRepository('r1');
+
+    expect(catalog.items.value).toHaveLength(1);
+    expect(catalog.items.value[0]?.repositories.map((r) => r.name)).toEqual(['worker']);
   });
 });
